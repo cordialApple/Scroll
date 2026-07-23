@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+out/
+.vite/
+.turbo/
+coverage/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tsbuildinfo
+.jupyter_ystore.db
