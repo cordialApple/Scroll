@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scroll.local/contracts/ide-es.v1.json",
+  "title": "ide-es spawn schema",
+  "description": "Contract 2 (Factory + OCP). A consumer seeds this; Scroll's create_ide_es spawns a single-person, gradable code surface. Scroll owns spawning, hosting, and grading; the consumer owns seeding. The graded oracle (hidden tests + TLE) is native to Scroll and never consumer-controllable at apply time (contract 4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "title",
+    "lifecycleOwner",
+    "programmatic",
+    "goalCondition",
+    "problem",
+    "entry",
+    "tests",
+    "tleBudgetMs"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "ide-es" },
+    "title": { "type": "string", "minLength": 1 },
+    "lifecycleOwner": { "enum": ["human", "consumer"] },
+    "programmatic": {
+      "enum": ["on", "off"],
+      "description": "Contract 3 (Strategy). Scroll-owned capability preset."
+    },
+    "goalCondition": { "type": "string", "minLength": 1, "description": "What 'done' means for this endpoint." },
+    "problem": { "type": "string", "minLength": 1, "description": "The statement the user works against." },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "functionName"],
+      "description": "The solution seam the grader invokes.",
+      "properties": {
+        "language": { "const": "javascript" },
+        "functionName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Sample and hidden test cases. At least one must be hidden — the hidden set is the graded oracle. The TLE-gating adversarial case is a hidden test with a large input.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["input", "expectedOutput", "hidden"],
+        "properties": {
+          "name": { "type": "string" },
+          "input": { "type": "string" },
+          "expectedOutput": { "type": "string" },
+          "hidden": { "type": "boolean" }
+        }
+      }
+    },
+    "tleBudgetMs": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Per-test wall-clock budget. Enforces 'use the efficient strategy': an adversarial input a brute-force blows but the intended structure clears."
+    },
+    "complexityBudget": {
+      "type": "string",
+      "description": "Optional informational target, e.g. 'O(n log n)'. Not machine-enforced; tleBudgetMs is the gate."
+    },
+    "hints": {
+      "type": "array",
+      "description": "Staged strategy hints.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "afterFailedAttempts": { "type": "number" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "resultCallbackUrl": {
+      "type": "string",
+      "description": "Contract 6. Opaque consumer-supplied URL; Scroll POSTs the verdict payload fire-and-forget."
+    }
+  }
+}
