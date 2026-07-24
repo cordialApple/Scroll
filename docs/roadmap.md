@@ -6,13 +6,20 @@ then the AI angles.
 
 ## P0 — Single-user editor + relative-anchoring core
 
-- Block-based document model with stable `blockId`s.
+- Block-based document model with stable `blockId`s — app-level ids stored as block attributes,
+  never Yjs internal ids, so anchors survive an epoch reset (see
+  [architecture/distributed-systems.md](architecture/distributed-systems.md)).
 - Scroll position stored as `{blockId, offsetWithinBlock}`, never a pixel value.
 - `overflow-anchor: none`; pre-paint restore via `useLayoutEffect`.
+- Anchor-centric virtualized layout: render window positioned from the anchor block outward, so
+  estimated heights above never move the camera (see
+  [architecture/relative-viewport-anchoring.md](architecture/relative-viewport-anchoring.md)).
 - Yjs `Y.Doc` as the substrate even in single-user (so multi-user is additive, not a rewrite).
 - Consumed-id redirect table so merges/deletions resolve anchors through the rename.
 
-Milestone: with a synthetic op stream inserting content above the camera, the viewport does not move.
+Milestone: with a synthetic op stream inserting content above the camera, the viewport does not
+move — including with virtualized rendering and variable-height blocks. An unvirtualized pass proves
+nothing about the shipped architecture.
 
 ## P1 — Endpoint spawners (doc-es, ide-es)
 
@@ -27,7 +34,8 @@ Milestone: a schema in produces a working, gradable IDE endpoint out.
 ## P2 — PersonalServer integration (programmatic seed)
 
 - PersonalServer (Claude-only MCP) seeds an ide-es schema programmatically and receives a spawned
-  endpoint URL. It does not run the editor.
+  endpoint URL plus a result URL to poll for the verdict (contract 6 in
+  [architecture/boundaries.md](architecture/boundaries.md)). It does not run the editor.
 - Degrade cleanly when Scroll is not running.
 - See [integrations/personalserver.md](integrations/personalserver.md).
 

@@ -58,28 +58,46 @@ multi-user use one storage format and multi-user is additive rather than a rewri
   `Y.mergeUpdates`.
 
 **P3, add multi-user (drop-in, no client rewrite).**
-- Server: Hocuspocus (or `y-websocket` for the two-localhost test) with a Database extension, behind a
-  single-authority-per-room owner (see [distributed-systems.md](distributed-systems.md)).
+- Server: Hocuspocus (or `y-websocket` for the two-localhost test), behind a single-authority-per-room
+  owner (see [distributed-systems.md](distributed-systems.md)). The Database extension is
+  write-behind/debounced, so it may hold the **snapshot only**; the write-ahead `document_updates`
+  append is custom code in a synchronous `beforeHandleMessage`-level hook that runs before the update
+  is applied to the canonical doc or broadcast. Wiring the extension alone re-ships the Figma bug.
 - Postgres, two tables:
-  - `documents(doc_id PK, snapshot BYTEA, state_vector BYTEA, updated_at)`: the compacted base blob,
-    written on debounce and on last-disconnect, atomically.
-  - `document_updates(doc_id, seq BIGSERIAL, update BYTEA, created_at)`: append-only hot log for
-    durability between snapshots. Fold into `documents.snapshot` on a threshold inside one
-    transaction, then delete the folded rows.
-  - Optional `document_versions(doc_id, label, snapshot BYTEA, state_vector BYTEA, created_at)` for
-    named history (needs `gc: false`).
+  - `documents(doc_id PK, doc_epoch, owner_epoch, snapshot BYTEA, state_vector BYTEA, updated_at)`:
+    the compacted base blob, written on debounce and on last-disconnect, atomically and
+    epoch-fenced. `doc_epoch` is the reset epoch; `owner_epoch` the fencing token — a lease grant
+    bumps it, and every snapshot/compaction write is conditional (`WHERE owner_epoch = $lease`).
+  - `document_updates(doc_id, doc_epoch, seq BIGSERIAL, update BYTEA, created_at)`: append-only hot
+    log for durability between snapshots. Fold into `documents.snapshot` on a threshold inside one
+    transaction, then delete the folded rows. Two owners' appends commute harmlessly; their
+    compactions do not, which is why compaction is fenced.
+  - Optional `document_versions(doc_id, doc_epoch, label, snapshot BYTEA, state_vector BYTEA,
+    created_at)` for named history (needs `gc: false`). A version restore across a reset materializes
+    the archived epoch read-only; re-import into the live doc is a content import, not a CRDT merge.
 - Client keeps `y-indexeddb` and adds the network provider. Still offline-capable; reconciles via
-  state-vector diff on reconnect.
+  state-vector diff on reconnect; the connection handshake carries `doc_epoch`.
 - Large docs: move `documents.snapshot` to S3, keep the pointer plus `state_vector` in Postgres.
+- Branch note ([open-questions.md](../open-questions.md) item 6): this shape is the
+  Hocuspocus/Postgres branch. The Durable Objects branch uses DO attached storage as log + snapshot
+  with the platform's one-instance guarantee as the fence; the schema above does not apply there,
+  and a DO fronting external Postgres/S3 still needs the `owner_epoch` check at that store.
 
 ## Durability rules (wire these in)
 
-1. **Persist before ack.** Write each incoming update to `document_updates` before broadcasting it. In
-   memory is not durable. This is the Figma journal lesson.
+1. **Persist before broadcast-and-apply.** Yjs has no per-update acks, so the rule binds at the
+   ingress hook: write each incoming update to `document_updates` before applying it to the canonical
+   doc or broadcasting it. In memory is not durable. This is the Figma journal lesson.
 2. **Compaction is one atomic transaction.** Write the merged snapshot and delete the folded rows
    together, or a crash mid-compaction drops updates that were "already merged."
 3. **A durable client queue heals dropped server writes.** y-indexeddb plus state-vector reconnect
    re-delivers any op the server lost, as long as a peer still holds it.
+4. **Snapshot and compaction writes are epoch-fenced.** A lease grant bumps `owner_epoch`; every
+   snapshot write and the whole compaction transaction carry `WHERE owner_epoch = $lease`, so a
+   paused zombie owner's late compaction fails loudly instead of clobbering.
+5. **Never silently discard a peer's local ops.** Every forced full reload (offline past the bound, a
+   rejected update, an epoch reset) is preceded by salvage: push the ops that still merge, export the
+   rest as a fork/diff the user can see.
 
 ## GC / compaction safety (stated precisely)
 
@@ -92,8 +110,11 @@ multi-user use one storage format and multi-user is additive rather than a rewri
    update is always byte-compatible and no larger than the inputs).
 5. Never ack before persistence; pair with a durable client queue.
 
-Scroll runs rooms `gc: false` and trims memory with snapshot/version resets, not per-tombstone GC.
-This is the same call recorded in [open-questions.md](../open-questions.md) item 4.
+Scroll runs rooms `gc: false` and reclaims memory with the **epoch reset protocol** in
+[distributed-systems.md](distributed-systems.md) — archive the old epoch, rebuild, remap anchors,
+salvage stale peers — not per-tombstone GC. Every store row carries `doc_epoch` so archived epochs
+stay materializable read-only. This is the same call recorded in
+[open-questions.md](../open-questions.md) item 4.
 
 ## Sources
 

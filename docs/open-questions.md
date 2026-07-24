@@ -36,9 +36,10 @@ Decision test per feature: does an external consumer need to reach it? Yes -> ex
 endpoint seam. Only Scroll + the human -> native, do not wrap it. Must be trustworthy/isolated ->
 native by necessity, deliberately not consumer-controllable.
 
-The seams this implies are formalized as interface contracts in
-[architecture/boundaries.md](architecture/boundaries.md) (dependency direction, peer protocol, spawn
-schema, programmatic Strategy, grader trust boundary).
+The seams this implies are formalized as the seven interface contracts in
+[architecture/boundaries.md](architecture/boundaries.md) (peer protocol, spawn schema, programmatic
+Strategy, grader trust boundary, persistence/room ownership, result notification, peer credentials —
+all under the dependency-direction root rule).
 
 Still open: whether this veneer holds as consumers grow, and where exactly the seam sits for surfaces
 that are borderline (a coaching notepad that is ephemeral but human-facing).
@@ -51,8 +52,11 @@ Native-to-Scroll surfaces vs STARfolio-provided surfaces + observability provisi
 tooling side is now researched in [architecture/whiteboard.md](architecture/whiteboard.md): the
 build-vs-buy leaning is **custom on Konva + Yjs** (native server-side AI-readability, native Yjs,
 MIT), with Excalidraw-as-a-component-on-Yjs the runner-up; tldraw is best-in-class but $6,000/yr and a
-second sync engine. What stays open is **ownership** (native to Scroll vs STARfolio-provided), not the
-tech. Depends-on: P4.
+second sync engine. Ownership now has a recorded leaning: **native to Scroll** — the contract set in
+[architecture/boundaries.md](architecture/boundaries.md) covers everything that crosses the boundary,
+and STARfolio-provided surfaces inside Scroll rooms would be consumer code no contract governs; taking
+that branch means drafting a new contract first. See
+[integrations/starfolio.md](integrations/starfolio.md). Depends-on: P4.
 
 ## 3. Problem-source / graded-oracle trust (ide-es)
 
@@ -66,18 +70,30 @@ graded oracle; AI generation is proposal-only. Depends-on: P1/P2.
 Decided CRDT (Yjs): identity-based relative-position anchors, existing editor bindings, presence off
 the document, a headless agent can join as a peer. OT is compact but central-server-bound and hard to
 inject an agent into. The cost of CRDT is tombstones/per-object metadata, which is now a concrete
-policy call, not an open algorithm choice: Scroll runs rooms `gc: false` (version history and lagging
-peers, the agent included, need it) and trims memory via snapshot/version resets, not per-tombstone
-GC. The live sub-decision is the **GC watermark**: when, if ever, it is safe to compact tombstones
-given offline peers. See [architecture/storage-and-persistence.md](architecture/storage-and-persistence.md)
-and [architecture/distributed-systems.md](architecture/distributed-systems.md). Height compensation
-for the viewport is ours to write regardless. Depends-on: P0.
+mechanism, not an open algorithm choice: Scroll runs rooms `gc: false` (version history and lagging
+peers, the agent included, need it) and reclaims memory via the **epoch reset protocol** in
+[architecture/distributed-systems.md](architecture/distributed-systems.md) (archive old epoch,
+rebuild, remap anchors, salvage stale peers). The watermark is computable because offline age is
+bounded. What stays open is **tuning**: the offline bound and the reset trigger thresholds. One hard
+P0 consequence: `blockId` must be an app-level stable id, never a Yjs internal id, or anchors do not
+survive a reset. See
+[architecture/storage-and-persistence.md](architecture/storage-and-persistence.md). Height
+compensation for the viewport is ours to write regardless. Depends-on: P0.
 
 ## 5. Height estimation for offscreen cameras
 
-For the rendered pane you measure the DOM. For collaborators' (and offscreen cameras') positions you
-work from estimated heights that drift. How much drift is acceptable before a re-anchor, and how to
-correct it, is unresolved. Depends-on: P3, P6.
+For the rendered pane you measure the DOM; everything else runs on estimated heights that drift. The
+scope is now split (see [architecture/relative-viewport-anchoring.md](architecture/relative-viewport-anchoring.md)):
+
+- **Own camera**: protected by anchor-centric virtualized layout — estimates above the window affect
+  scrollbar geometry only, never the anchor's screen position. Not blocked on this question.
+- **P6 spatial guard**: block-granular (`±4` blockIds, no pixels), so pixel drift does not threaten
+  agent correctness. Not blocked on this question.
+- **What actually depends on it**: follow-mode and session-replay pixel fidelity for cameras you are
+  not rendering. How much drift is acceptable before a re-anchor, and how to correct it, is
+  unresolved.
+
+Depends-on: P3 (follow-mode), P6 only for display fidelity, not correctness.
 
 ## 6. Managed vs self-hosted transport (constrained by single-authority-per-room)
 

@@ -8,6 +8,19 @@ surface that Scroll creates on demand. There are two spawners.
 Spawns a single-person prose editor surface. Used by Scroll's own AI-editor value prop and by any
 document-oriented consumer.
 
+### The doc-es schema
+
+Nearly config-free by design, but it exists so the spawn seam is uniform (one Factory, two schemas):
+
+- **title** — display name for the surface.
+- **initial content** (optional) — seed blocks; empty buffer if absent.
+- **lifecycle owner** — `human` (durable, user-owned doc) or `consumer` (ephemeral endpoint).
+- **programmatic preset** — the contract-3 selection.
+- **result / callback target** (optional) — per contract 6, for lifecycle events.
+
+Like the ide-es schema, it is the entire contract: a consumer never reaches past it, and neither side
+changes it alone (contract 2 in [boundaries.md](boundaries.md)).
+
 ## ide-es (IDE endpoint spawner)
 
 Spawns a single-person code editor surface. Two properties distinguish it from doc-es:
@@ -48,4 +61,4 @@ the outside (seed a schema, drive an endpoint) rather than modifying the app int
 
 This is a design bet. It has not been proven that the endpoint seam is the right abstraction for
 Scroll-only features, and it may add indirection where a native call would do. Recorded as an open
-question in [open-questions.md](open-questions.md).
+question in [open-questions.md](../open-questions.md).

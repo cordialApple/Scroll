@@ -12,8 +12,8 @@ value props are actually buildable as described.
 
 - `docs/architecture/distributed-systems.md` — the hard core. It ends with **8 pre-answered reviewer
   questions**. Try to break each pre-answer, do not accept them.
-- `docs/architecture/boundaries.md` — **five interface contracts + a 7-item review checklist**. Run
-  the checklist against the whole doc set; hunt for cross-app interactions the five contracts do not
+- `docs/architecture/boundaries.md` — **seven interface contracts + a 7-item review checklist**. Run
+  the checklist against the whole doc set; hunt for cross-app interactions the seven contracts do not
   cover.
 - `docs/architecture/storage-and-persistence.md` — durability and GC rules.
 - `docs/architecture/relative-viewport-anchoring.md` and `attention-anchored-editor.md` — the two

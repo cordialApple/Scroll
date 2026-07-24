@@ -1,7 +1,7 @@
 # Sample implementation (illustrative)
 
 Not a decided design. A concrete-enough picture to reason about the contracts and to give a reviewer
-something to attack. Edge labels reference the five contracts in [boundaries.md](boundaries.md).
+something to attack. Edge labels reference the seven contracts in [boundaries.md](boundaries.md).
 
 ## Structure
 
@@ -70,11 +70,15 @@ sequenceDiagram
   Note over Grader: contract 4 — authoritative oracle, not consumer-driven
   Grader-->>Scroll: pass / fail
   Scroll-->>User: resolves only on pass within budget
+  PS->>Scroll: poll result URL (contract 6)
+  Scroll-->>PS: verdict — no internals in payload
+  PS-->>Claude: user passed
 ```
 
-The consumer (PersonalServer) touches exactly one seam (`create_ide_es`) and never the grader. Claude
-in conversation is the only intelligence on this path; `programmatic:on` is what guarantees no other
-AI joins.
+The consumer (PersonalServer) touches two seams, both consumer-initiated: `create_ide_es` (contract
+2) going in and the result URL (contract 6) coming back. It never touches the grader. Claude in
+conversation is the only intelligence on this path; `programmatic:on` is what guarantees no other AI
+joins — mechanically, the preset never issues an `agent`-role peer token (contract 7).
 
 ## Flow: STARfolio interview (programmatic off)
 
@@ -89,10 +93,13 @@ sequenceDiagram
   Note over Scroll: contract 3 — off admits an external AI peer
   Scroll-->>SF: endpoint / room
   SF->>IV: start interviewer, wrap AI+voice as a peer (Adapter)
-  IV->>Scroll: join room (contract 1: peer protocol, authenticated)
+  SF->>Scroll: request agent-role peer token (contract 7)
+  Scroll-->>SF: room-scoped token
+  IV->>Scroll: join room (contract 1: peer protocol, token-authenticated)
   User->>Scroll: edits document / notepad
   Scroll-->>IV: Y.Doc deltas + awareness
   IV->>Scroll: writes via CRDT ops at Y.RelativePosition, own awareness
+  IV->>Scroll: guarded writes via propose/commit (token capability, contract 7)
   Note over Scroll: same discipline as the native agent, enforced room-side
 ```
 

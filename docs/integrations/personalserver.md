@@ -12,6 +12,9 @@ grades. Concretely, a PersonalServer MCP tool:
 2. Calls Scroll's spawner (`create_ide_es` / sl) with `programmatic` config on.
 3. Returns the spawned endpoint URL (and staged hints) to Claude, which hands it to the user in
    conversation.
+4. Polls the result URL that came back with the spawn (contract 6 in
+   [../architecture/boundaries.md](../architecture/boundaries.md)) so Claude learns the verdict —
+   pass/fail within budget, no Scroll internals in the payload.
 
 Claude in conversation is the only intelligence on this path. Scroll hosts the IDE and runs the
 grader; the submission resolves only when the hidden tests pass within the TLE / complexity budget.
