@@ -1,0 +1,215 @@
+import { describe, it, expect } from 'vitest'
+import fc from 'fast-check'
+import * as Y from 'yjs'
+import {
+  createDoc,
+  appendBlock,
+  blocks,
+  blockId,
+  blockText,
+  makeBlock,
+  blockOrder,
+  indexOfBlock,
+  redirectSource,
+  setBlockText,
+  mergeIntoPrevious,
+} from '../../doc/model'
+import { resolveEffectiveAnchor } from '../../doc/anchor'
+import {
+  computeLayout,
+  deriveAnchor,
+  windowFor,
+  sumHeights,
+  type Anchor,
+  type HeightModel,
+} from '../../layout/layout'
+import { pbtAssert, withDeterminism } from './harness'
+
+function trueHeight(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff
+  return 50 + (h % 71)
+}
+
+function measuredAll(order: string[]): HeightModel {
+  const measured = new Map<string, number>()
+  for (const id of order) measured.set(id, trueHeight(id))
+  return { measured, estimate: () => 40 }
+}
+
+// The real anti-jump condition: heights above the camera are UNKNOWN (a deliberately wrong
+// estimate); only the anchor is measured. Re-deriving from the anchor must still pin the camera.
+function measuredAnchorOnly(anchorId: string): HeightModel {
+  return { measured: new Map([[anchorId, trueHeight(anchorId)]]), estimate: () => 30 }
+}
+
+function buildDoc(n: number): Y.Doc {
+  const doc = createDoc()
+  for (let i = 0; i < n; i++) appendBlock(doc, 'paragraph', `block ${i}`)
+  return doc
+}
+
+type Op =
+  | { k: 'insertAbove'; n: number }
+  | { k: 'insertBelow'; n: number }
+  | { k: 'deleteAbove'; n: number }
+  | { k: 'deleteBelow'; n: number }
+  | { k: 'editOther'; rel: number; text: string }
+
+// Every op is anchor-relative and never touches the anchor block itself.
+function applyOp(doc: Y.Doc, anchorId: string, op: Op): void {
+  const idx = indexOfBlock(doc, anchorId)
+  if (idx < 0) return
+  const arr = blocks(doc)
+  switch (op.k) {
+    case 'insertAbove': {
+      const items = Array.from({ length: op.n }, (_, i) => makeBlock('paragraph', `above ${i}`))
+      doc.transact(() => arr.insert(idx, items))
+      break
+    }
+    case 'insertBelow': {
+      const items = Array.from({ length: op.n }, (_, i) => makeBlock('paragraph', `below ${i}`))
+      doc.transact(() => arr.insert(idx + 1, items))
+      break
+    }
+    case 'deleteAbove': {
+      const n = Math.min(op.n, idx)
+      if (n > 0) doc.transact(() => arr.delete(idx - n, n))
+      break
+    }
+    case 'deleteBelow': {
+      const n = Math.min(op.n, arr.length - idx - 1)
+      if (n > 0) doc.transact(() => arr.delete(idx + 1, n))
+      break
+    }
+    case 'editOther': {
+      if (arr.length <= 1) break
+      let t = op.rel % arr.length
+      if (t === idx) t = (idx + 1) % arr.length
+      setBlockText(doc, blockId(arr.get(t)), op.text)
+      break
+    }
+  }
+}
+
+const opArb: fc.Arbitrary<Op> = fc.oneof(
+  fc.record({ k: fc.constant('insertAbove' as const), n: fc.integer({ min: 1, max: 8 }) }),
+  fc.record({ k: fc.constant('insertBelow' as const), n: fc.integer({ min: 1, max: 8 }) }),
+  fc.record({ k: fc.constant('deleteAbove' as const), n: fc.integer({ min: 1, max: 8 }) }),
+  fc.record({ k: fc.constant('deleteBelow' as const), n: fc.integer({ min: 1, max: 8 }) }),
+  fc.record({ k: fc.constant('editOther' as const), rel: fc.nat(), text: fc.string({ maxLength: 24 }) }),
+)
+
+const opsArb = fc.array(opArb, { minLength: 1, maxLength: 30 })
+const sizeArb = fc.integer({ min: 2, max: 40 })
+
+describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memory)', () => {
+  it('anchor identity + content survive arbitrary non-anchor mutations', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.nat(), opsArb, fc.nat(), (base, anchorSel, ops, offSel) => {
+        const doc = buildDoc(base)
+        const order0 = blockOrder(doc)
+        const anchorId = order0[anchorSel % base]
+        const anchorText0 = blockText(blocks(doc).get(anchorSel % base)).toString()
+        const off = offSel % Math.floor(trueHeight(anchorId))
+
+        for (const op of ops) applyOp(doc, anchorId, op)
+
+        const order1 = blockOrder(doc)
+        if (!order1.includes(anchorId)) return false
+
+        const eff = resolveEffectiveAnchor(order1, redirectSource(doc), { blockId: anchorId, offset: off })
+        if (eff.blockId !== anchorId || eff.offset !== off) return false
+
+        const idx1 = indexOfBlock(doc, anchorId)
+        return blockText(blocks(doc).get(idx1)).toString() === anchorText0
+      }),
+    )
+  })
+
+  it('camera content is invariant under mutation even with wrong heights above (anti-jump)', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.nat(), opsArb, fc.nat(), (base, anchorSel, ops, offSel) => {
+        const doc = buildDoc(base)
+        const anchorId = blockOrder(doc)[anchorSel % base]
+        const off = offSel % trueHeight(anchorId)
+
+        for (const op of ops) applyOp(doc, anchorId, op)
+
+        const order1 = blockOrder(doc)
+        if (!order1.includes(anchorId)) return false
+        const hm = measuredAnchorOnly(anchorId)
+        const anchor: Anchor = { blockId: anchorId, offset: off }
+        const window = { start: 0, end: order1.length }
+
+        const scrollTop = computeLayout(order1, hm, window, anchor).scrollTop
+        const camera = deriveAnchor(scrollTop, order1, hm)
+        return camera.blockId === anchorId && camera.offset === off
+      }),
+    )
+  })
+
+  it('merged-away anchor redirects to its successor, never a document-top jump', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.nat(), (base, sel) => {
+        const doc = buildDoc(base)
+        const order0 = blockOrder(doc)
+        const anchorIdx = 1 + (sel % (base - 1))
+        const anchorId = order0[anchorIdx]
+        const predId = order0[anchorIdx - 1]
+
+        if (mergeIntoPrevious(doc, anchorId) !== predId) return false
+
+        const order1 = blockOrder(doc)
+        const eff = resolveEffectiveAnchor(order1, redirectSource(doc), { blockId: anchorId, offset: 5 })
+        return eff.blockId === predId && order1.includes(eff.blockId) && eff.offset === 0
+      }),
+    )
+  })
+
+  it('windowFor brackets the anchor and computeLayout partitions the full content height', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.nat(), fc.integer({ min: 200, max: 1600 }), (base, sel, viewportH) => {
+        const doc = buildDoc(base)
+        const order = blockOrder(doc)
+        const anchorId = order[sel % base]
+        const anchorIdx = order.indexOf(anchorId)
+        const hm = measuredAll(order)
+        const anchor: Anchor = { blockId: anchorId, offset: 0 }
+
+        const win = windowFor(order, hm, anchor, viewportH, 1200)
+        if (!(win.start >= 0 && win.start <= anchorIdx && anchorIdx < win.end && win.end <= order.length))
+          return false
+
+        const layout = computeLayout(order, hm, win, anchor)
+        const total = sumHeights(order, hm, 0, order.length)
+        const windowHeight = sumHeights(order, hm, win.start, win.end)
+        return (
+          layout.contentHeight === total &&
+          layout.topSpacer + windowHeight + layout.bottomSpacer === total &&
+          layout.topSpacer === sumHeights(order, hm, 0, win.start)
+        )
+      }),
+    )
+  })
+})
+
+describe('PBT: determinism harness (R1)', () => {
+  it('double-run canary: generation is reproducible at a fixed seed', () => {
+    const a = fc.sample(opsArb, { seed: 424242, numRuns: 8 })
+    const b = fc.sample(opsArb, { seed: 424242, numRuns: 8 })
+    expect(a).toEqual(b)
+  })
+
+  it('double-run canary: a build+mutate run is byte-identical under determinism (ids neutralized)', () => {
+    const run = () =>
+      withDeterminism(() => {
+        const doc = buildDoc(10)
+        const anchorId = blockOrder(doc)[5]
+        applyOp(doc, anchorId, { k: 'insertAbove', n: 3 })
+        applyOp(doc, anchorId, { k: 'insertBelow', n: 2 })
+        return blockOrder(doc)
+      })
+    expect(run()).toEqual(run())
+  })
+})

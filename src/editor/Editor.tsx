@@ -22,7 +22,7 @@ import {
   mergeIntoPrevious,
   type BlockView,
 } from '../doc/model'
-import { resolveRedirect } from '../doc/redirects'
+import { resolveEffectiveAnchor } from '../doc/anchor'
 import { estimateHeight } from '../layout/estimate'
 import {
   computeLayout,
@@ -111,13 +111,10 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     [estimates],
   )
 
-  const effAnchor: Anchor = useMemo(() => {
-    if (order.length === 0) return { blockId: '', offset: 0 }
-    if (order.includes(anchor.blockId)) return anchor
-    const r = resolveRedirect(redirectSource(doc), anchor.blockId, anchor.offset)
-    if (order.includes(r.blockId)) return { blockId: r.blockId, offset: r.offset }
-    return { blockId: order[0], offset: 0 }
-  }, [doc, order, anchor])
+  const effAnchor: Anchor = useMemo(
+    () => resolveEffectiveAnchor(order, redirectSource(doc), anchor),
+    [doc, order, anchor],
+  )
 
   const renderWindow = useMemo(
     () => windowFor(order, estimateHm, effAnchor, viewportH, OVERSCAN),
