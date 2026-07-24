@@ -85,6 +85,14 @@ describe('ide-es validation', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors.join(' ')).toContain('sneaky')
   })
+  it('rejects a functionName that is not a valid JS identifier (worker injection guard)', () => {
+    const r = validateIdeEsSchema({
+      ...validIde,
+      entry: { language: 'javascript', functionName: "x};fetch('//evil');({" },
+    })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors.join(' ')).toContain('valid JS identifier')
+  })
   it('rejects unknown keys on a nested test object', () => {
     const r = validateIdeEsSchema({
       ...validIde,

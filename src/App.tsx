@@ -13,6 +13,7 @@ import { listEndpoints } from './es/registry'
 import { Launcher } from './es/Launcher'
 import { EndpointRoute } from './es/EndpointRoute'
 import { ResultView } from './es/ResultView'
+import { SpawnView } from './es/SpawnView'
 import './es/es.css'
 
 const DOC_ID = 'scroll-p0'
@@ -20,12 +21,15 @@ const DOC_ID = 'scroll-p0'
 type Route =
   | { kind: 'home' }
   | { kind: 'launcher' }
+  | { kind: 'spawn'; param: string }
   | { kind: 'endpoint'; id: string }
   | { kind: 'result'; id: string }
 
 function parseRoute(hash: string): Route {
   const h = hash.replace(/^#/, '')
   if (h === '/es' || h === '/es/') return { kind: 'launcher' }
+  const spawn = h.match(/^\/es\/new(?:\?(.*))?$/)
+  if (spawn) return { kind: 'spawn', param: new URLSearchParams(spawn[1] ?? '').get('s') ?? '' }
   const result = h.match(/^\/es\/([^/]+)\/result$/)
   if (result) return { kind: 'result', id: result[1] }
   const ep = h.match(/^\/es\/([^/]+)$/)
@@ -46,6 +50,7 @@ function useRoute(): Route {
 export function App() {
   const route = useRoute()
   if (route.kind === 'launcher') return <Launcher />
+  if (route.kind === 'spawn') return <SpawnView key={route.param} param={route.param} />
   if (route.kind === 'endpoint') return <EndpointRoute key={route.id} id={route.id} />
   if (route.kind === 'result') return <ResultView key={route.id} id={route.id} />
   return <HomeDoc />
