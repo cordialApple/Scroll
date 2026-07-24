@@ -43,20 +43,32 @@ Milestone: a schema in produces a working, gradable IDE endpoint out.
 Milestone: Claude, in conversation, seeds a problem and hands back a unique Scroll IDE URL that
 grades on submit.
 
-## Q — Property-based testing in CI (cross-cutting quality track)
+## Q — Distributed-systems PBT in CI (cross-cutting quality track)
 
-- Not a phase; runs alongside the P-line. Encodes Scroll's product promise as PBT properties
-  (`fast-check`), because the hard bugs are state-evolution bugs across doc mutations / remote edits /
-  viewport / layout / virtualization, not pure-function bugs.
-- Small and always-on inside the existing `verify` CI job (no nightly fuzzing farm): PR = fixed seed
-  short campaign; main push = heavier + run-number-seeded second campaign; failures dump a
-  `{seed, ops, expected, observed}` artifact promoted to a committed regression fixture and replayed.
-- Property families: relative-anchoring invariants, virtualization/estimate-drift, model-based
-  (`fc.commands`), in-memory Yjs convergence, viewport-chaos sequences — each an adjudicator-gated
-  PR. Q1 generalizes the P0 anti-jump e2e into an in-memory property. See
-  [plans/pbt-in-ci.md](plans/pbt-in-ci.md).
+- Not a phase; runs alongside the P-line. **The spine:** Scroll's anchoring promise *is* a
+  distributed-systems property — a user stays semantically anchored while other replicas concurrently
+  mutate under an adversarial network. PBT (`fast-check`) enforces that on the shipped modules (the
+  redirect table, the anchor resolver, the id model), not just in layout tests, because the hard bugs
+  are state-evolution bugs across concurrency / reorder / partition, not pure-function bugs.
+- Small and always-on inside the existing `verify` CI job (no nightly fuzzing farm): PR = fixed-seed
+  short campaign; main push = heavier + run-number-seeded campaign that accrues a committed coverage
+  ledger; failures dump a value-based `{initial, ops, expected, observed}` artifact promoted to a
+  committed, seed-independent regression fixture and replayed.
+- **AI-generated PBT is first-class but authoring-time only:** a model examines failure artifacts +
+  diffs + generators offline and proposes new adversarial dimensions / generators / candidate
+  invariants as committed deterministic artifacts; CI only replays them, never calls a model. Every
+  AI artifact enters `@exploratory` and is adjudicator-gated (oracle soundness reviewed — an AI oracle
+  never silently becomes source of truth) before it is load-bearing.
+- Sub-track: **Q1** local anchoring property (generalize the P0 anti-jump e2e in-memory) → **Q2** the
+  DS convergence spine (N in-memory Yjs replicas under a generated reorder/delay/duplicate/
+  partition-heal schedule; SEC + causal consistency + anchor-under-concurrency) → **Q3** supporting
+  families (virtualization/estimate-drift, `fc.commands` model-based, viewport-chaos) → **Q4** turn on
+  AI-generated intake → **Q5** provider-chaos (real transport, gated behind P3). Each is an
+  adjudicator-gated PR. See [plans/pbt-in-ci.md](plans/pbt-in-ci.md) and
+  [architecture/distributed-systems.md](architecture/distributed-systems.md).
 
-Milestone: a random N-step editing trace that breaks anchoring is a minimized, replayable fixture.
+Milestone: a generated adversarial network schedule that breaks convergence or anchoring is a
+minimized, seed-independent, replayable fixture.
 
 ## P3 — Multi-user mode (two localhost instances)
 
