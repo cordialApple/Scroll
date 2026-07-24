@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scroll.local/contracts/result-payload.v1.json",
+  "title": "contract-6 result payload",
+  "description": "The verdict payload Scroll POSTs fire-and-forget to a schema's resultCallbackUrl on submit. Deliberately consumer-blind: pass/fail/counts only, no per-test detail, no Scroll internals (Verdict.cases is dropped). A consumer keys delivery by the correlation it baked into resultCallbackUrl, not by any field here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["endpointId", "status", "withinBudget", "passed", "total", "at"],
+  "properties": {
+    "endpointId": { "type": "string", "minLength": 1, "description": "Browser-minted endpoint id. Opaque to the consumer; not a correlation key." },
+    "status": { "enum": ["pass", "fail", "tle", "error"], "description": "pass = all tests passed within budget; fail = wrong answer; tle = a test exceeded the TLE budget; error = a test threw." },
+    "withinBudget": { "type": "boolean", "description": "False iff any test timed out." },
+    "passed": { "type": "integer", "minimum": 0, "description": "Count of passing tests." },
+    "total": { "type": "integer", "minimum": 1, "description": "Total test count (>=1; at least one hidden oracle)." },
+    "at": { "type": "number", "description": "Epoch-ms grading timestamp." }
+  }
+}

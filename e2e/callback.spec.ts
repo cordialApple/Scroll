@@ -53,6 +53,7 @@ test('a graded submission fires a contract-6 callback POST carrying the ResultPa
   await expect(page.locator('.es-verdict')).toHaveClass(/es-verdict-pass/, { timeout: 15_000 })
 
   await expect.poll(() => body, { timeout: 10_000 }).not.toBeNull()
+  expect(Object.keys(body!).sort()).toEqual(['at', 'endpointId', 'passed', 'status', 'total', 'withinBudget'])
   expect(body).toMatchObject({
     endpointId,
     status: 'pass',
