@@ -124,7 +124,11 @@ export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchem
   if (!isNonEmptyString(input.problem)) errors.push('problem must be a non-empty string')
   if (!isObject(input.entry) || input.entry.language !== 'javascript' || !isNonEmptyString(input.entry.functionName))
     errors.push("entry must be { language: 'javascript', functionName: string }")
-  else rejectUnknown(input.entry, ENTRY_KEYS, errors, 'entry')
+  else {
+    rejectUnknown(input.entry, ENTRY_KEYS, errors, 'entry')
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(input.entry.functionName as string))
+      errors.push('entry.functionName must be a valid JS identifier')
+  }
   if (typeof input.tleBudgetMs !== 'number' || !(input.tleBudgetMs > 0))
     errors.push('tleBudgetMs must be a positive number')
   if (!Array.isArray(input.tests) || input.tests.length === 0) errors.push('tests must be a non-empty array')

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { create_ide_es, create_doc_es, isSpawnError, type EndpointHandle, type SpawnError } from './factory'
 import { listEndpoints } from './registry'
 import { sampleIdeSchema, sampleDocSchema } from './samples'
+import { programmaticSpawnUrl } from './programmatic'
 
 export function Launcher() {
   const [items, setItems] = useState(() => listEndpoints())
@@ -34,6 +35,9 @@ export function Launcher() {
           </button>
           <button className="es-btn" onClick={spawnDoc}>
             Spawn doc endpoint (sample)
+          </button>
+          <button className="es-btn" onClick={() => go(programmaticSpawnUrl(sampleIdeSchema()))}>
+            Spawn via URL (sample)
           </button>
         </div>
         {items.length === 0 ? (

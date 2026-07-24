@@ -56,6 +56,16 @@ export function create_ide_es(
   return spawn(r.value, now)
 }
 
+export function create_endpoint(
+  input: unknown,
+  now: number = Date.now(),
+): EndpointHandle | SpawnError {
+  const kind = (input as { kind?: unknown })?.kind
+  if (kind === 'ide-es') return create_ide_es(input, now)
+  if (kind === 'doc-es') return create_doc_es(input, now)
+  return { ok: false, errors: ["kind must be 'doc-es' or 'ide-es'"] }
+}
+
 export function isSpawnError(v: EndpointHandle | SpawnError): v is SpawnError {
   return (v as SpawnError).ok === false
 }
