@@ -80,6 +80,18 @@ describe('ide-es validation', () => {
     const r = validateIdeEsSchema(rest)
     expect(r.ok).toBe(false)
   })
+  it('rejects unknown top-level keys (additionalProperties:false parity)', () => {
+    const r = validateIdeEsSchema({ ...validIde, sneaky: true })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors.join(' ')).toContain('sneaky')
+  })
+  it('rejects unknown keys on a nested test object', () => {
+    const r = validateIdeEsSchema({
+      ...validIde,
+      tests: [{ input: 'a', expectedOutput: 'b', hidden: true, weight: 5 }],
+    })
+    expect(r.ok).toBe(false)
+  })
 })
 
 describe('validateEndpointSchema dispatches on kind', () => {

@@ -9,12 +9,12 @@ export interface DocHandle {
   whenSynced: Promise<void>
 }
 
-export function openDoc(docId: string): DocHandle {
+export function openDoc(docId: string, opts: { seed?: boolean } = {}): DocHandle {
   const doc = createDoc()
   const provider = new IndexeddbPersistence(docId, doc)
   const whenSynced = new Promise<void>((resolve) => {
     provider.once('synced', () => {
-      seedIfEmpty(doc)
+      if (opts.seed !== false) seedIfEmpty(doc)
       resolve()
     })
   })

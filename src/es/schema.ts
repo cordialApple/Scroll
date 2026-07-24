@@ -69,6 +69,19 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0
 }
 
+function rejectUnknown(o: Record<string, unknown>, allowed: string[], errors: string[], path: string): void {
+  for (const k of Object.keys(o)) {
+    if (!allowed.includes(k)) errors.push(`${path} has unknown key '${k}'`)
+  }
+}
+
+const DOC_KEYS = ['schemaVersion', 'kind', 'title', 'lifecycleOwner', 'programmatic', 'initialContent', 'resultCallbackUrl']
+const IDE_KEYS = ['schemaVersion', 'kind', 'title', 'lifecycleOwner', 'programmatic', 'goalCondition', 'problem', 'entry', 'tests', 'tleBudgetMs', 'complexityBudget', 'hints', 'resultCallbackUrl']
+const SEED_KEYS = ['type', 'text']
+const ENTRY_KEYS = ['language', 'functionName']
+const TEST_KEYS = ['name', 'input', 'expectedOutput', 'hidden']
+const HINT_KEYS = ['afterFailedAttempts', 'text']
+
 function checkCommon(o: Record<string, unknown>, errors: string[]): void {
   if (!isNonEmptyString(o.title)) errors.push('title must be a non-empty string')
   if (!OWNERS.includes(o.lifecycleOwner as LifecycleOwner))
@@ -82,6 +95,7 @@ function checkCommon(o: Record<string, unknown>, errors: string[]): void {
 export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchema> {
   const errors: string[] = []
   if (!isObject(input)) return { ok: false, errors: ['schema must be an object'] }
+  rejectUnknown(input, DOC_KEYS, errors, 'schema')
   if (input.kind !== 'doc-es') errors.push("kind must be 'doc-es'")
   if (input.schemaVersion !== DOC_ES_SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${DOC_ES_SCHEMA_VERSION}`)
@@ -92,6 +106,7 @@ export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchem
       input.initialContent.forEach((b, i) => {
         if (!isObject(b) || (b.type !== 'paragraph' && b.type !== 'heading') || typeof b.text !== 'string')
           errors.push(`initialContent[${i}] must be { type: 'paragraph'|'heading', text: string }`)
+        else rejectUnknown(b, SEED_KEYS, errors, `initialContent[${i}]`)
       })
   }
   return errors.length ? { ok: false, errors } : { ok: true, value: input as unknown as DocEsSchema }
@@ -100,6 +115,7 @@ export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchem
 export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchema> {
   const errors: string[] = []
   if (!isObject(input)) return { ok: false, errors: ['schema must be an object'] }
+  rejectUnknown(input, IDE_KEYS, errors, 'schema')
   if (input.kind !== 'ide-es') errors.push("kind must be 'ide-es'")
   if (input.schemaVersion !== IDE_ES_SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${IDE_ES_SCHEMA_VERSION}`)
@@ -108,6 +124,7 @@ export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchem
   if (!isNonEmptyString(input.problem)) errors.push('problem must be a non-empty string')
   if (!isObject(input.entry) || input.entry.language !== 'javascript' || !isNonEmptyString(input.entry.functionName))
     errors.push("entry must be { language: 'javascript', functionName: string }")
+  else rejectUnknown(input.entry, ENTRY_KEYS, errors, 'entry')
   if (typeof input.tleBudgetMs !== 'number' || !(input.tleBudgetMs > 0))
     errors.push('tleBudgetMs must be a positive number')
   if (!Array.isArray(input.tests) || input.tests.length === 0) errors.push('tests must be a non-empty array')
@@ -116,7 +133,10 @@ export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchem
     input.tests.forEach((t, i) => {
       if (!isObject(t) || typeof t.input !== 'string' || typeof t.expectedOutput !== 'string' || typeof t.hidden !== 'boolean')
         errors.push(`tests[${i}] must be { input: string, expectedOutput: string, hidden: boolean }`)
-      else if (t.hidden) hidden++
+      else {
+        rejectUnknown(t, TEST_KEYS, errors, `tests[${i}]`)
+        if (t.hidden) hidden++
+      }
     })
     if (hidden === 0) errors.push('at least one test must be hidden (the graded oracle)')
   }
@@ -126,6 +146,7 @@ export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchem
       input.hints.forEach((h, i) => {
         if (!isObject(h) || typeof h.text !== 'string')
           errors.push(`hints[${i}] must be { text: string, afterFailedAttempts?: number }`)
+        else rejectUnknown(h, HINT_KEYS, errors, `hints[${i}]`)
       })
   }
   return errors.length ? { ok: false, errors } : { ok: true, value: input as unknown as IdeEsSchema }
