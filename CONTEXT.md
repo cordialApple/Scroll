@@ -1,6 +1,11 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-24 08:00 · branch: feat/p1-endpoint-spawners · session: P1 endpoint spawners built, inspected, adjudicated; CI live; opening auto-merge PR_
+_Last updated: 2026-07-24 08:20 · branch: test/p1-grading-e2e · session: P1 merged (PR #1); adding live-grading e2e (Stage 3)_
+
+## 0. Where things stand
+- **PR #1 merged to main** (`c795b15`): P1 endpoint spawners + CI + branch protection (required checks `typecheck / test / build` + `playwright e2e`) + auto-merge-on-green (no review, user-approved).
+- **Stage 3 in progress** on `test/p1-grading-e2e`: `e2e/grading.spec.ts` — spawns a real ide-es endpoint, submits, asserts Accepted 4/4 / Wrong answer / TLE through the **real Web Worker**. Adjudicator = PASS. Next: gated PR → auto-merge.
+- Workflow rule (user): `adjudicator` must gate every PR and any CI/e2e authoring. Loop: implement → inspectors → adjudicator → PR → CI → auto-merge → handoff.
 
 ## 1. What changed this session
 - **P1 endpoint spawners shipped** (3 commits on `feat/p1-endpoint-spawners`, based on P0 `731567d`):
