@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scroll.local/contracts/doc-es.v1.json",
+  "title": "doc-es spawn schema",
+  "description": "Contract 2 (Factory + OCP). A consumer seeds this; Scroll's create_doc_es spawns a single-person prose surface. The entire contract — nothing reaches past it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "title", "lifecycleOwner", "programmatic"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "doc-es" },
+    "title": { "type": "string", "minLength": 1 },
+    "lifecycleOwner": {
+      "enum": ["human", "consumer"],
+      "description": "human = durable user-owned doc; consumer = ephemeral endpoint."
+    },
+    "programmatic": {
+      "enum": ["on", "off"],
+      "description": "Contract 3 (Strategy). Scroll-owned capability preset; generic on purpose. Not a consumer role."
+    },
+    "initialContent": {
+      "type": "array",
+      "description": "Optional seed blocks; empty buffer if absent.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "text"],
+        "properties": {
+          "type": { "enum": ["paragraph", "heading"] },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "resultCallbackUrl": {
+      "type": "string",
+      "description": "Contract 6. Opaque consumer-supplied URL Scroll POSTs lifecycle events to fire-and-forget. Data, not a dependency."
+    }
+  }
+}

@@ -1,26 +1,29 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-23 · branch: main · session: P0 built from the brief, verified live in browser, committed_
+_Last updated: 2026-07-24 08:00 · branch: feat/p1-endpoint-spawners · session: P1 endpoint spawners built, inspected, adjudicated; CI live; opening auto-merge PR_
 
 ## 1. What changed this session
-- **P0 shipped.** Built the full single-user anchored editor from `docs/p0-build-brief.md`: React + TS + Vite, Yjs (`gc:false`) + y-indexeddb, custom virtualized block layer. ~1200 LOC under `src/`.
-- Core anchoring split into pure, tested modules: `src/layout/layout.ts` (anchor-centric window + `computeLayout`/`deriveAnchor`/`windowFor`), `src/doc/model.ts` (block projection over `Y.Doc`), `src/doc/redirects.ts` (transitive consumed-id table, cycle guard), `src/doc/camera.ts` (`{blockId,offset}` persist), `src/doc/persistence.ts` (`'synced'` gate).
-- `src/editor/Editor.tsx`: virtualized render window + pre-paint anchor hold (`useLayoutEffect` scrollTop correction), height measurement/settle loop, split/merge, redirect fallback for the anchor.
-- Chrome: `MenuBar` + `Toolbar` styled to Google M3 dark; `src/theme.css` = the brief's exact token set; `index.html` sets `color-scheme:dark` + dark bg inline (no white flash).
-- Dev-only: `src/dev/synthetic.ts` (insert/delete/merge above), `window.__scroll` handle, three toolbar test buttons.
+- **P1 endpoint spawners shipped** (3 commits on `feat/p1-endpoint-spawners`, based on P0 `731567d`):
+  - `ec1e2ee` — pinned wire schemas: `src/es/schema.ts` (types + versioned constants + dependency-free validators that now reject unknown keys) mirrored by `docs/contracts/{doc-es,ide-es}.v1.json`.
+  - `22ccedd` — the spawner machinery: `factory.ts` (`create_doc_es`/`create_ide_es` → `{endpointId,url,resultUrl}`), `endpoint.ts` (endpoint state on its own `Y.Doc`: meta map + code `Y.Text` / prose blocks), `grader.ts` + `executor.worker.ts` + `workerExecutor.ts` (sandboxed per-test grading with hard TLE via `worker.terminate()`), `registry.ts` (localStorage index + result cache = the pollable result URL), views (`IdeEndpointView`/`DocEndpointView`/`ResultView`/`Launcher`/`EndpointRoute`), hash router in `App.tsx` (P0 `HomeDoc` preserved byte-for-byte).
+  - `faeefda` — CI: `.github/workflows/ci.yml` (verify: typecheck/test/build + e2e: playwright), `auto-merge.yml`, `playwright.config.ts`, `e2e/milestone.spec.ts` (automates the P0 anti-jump browser check).
+- **Remote created + main pushed:** public repo `github.com/cordialApple/Scroll`; `main` = P0.
+- **Checkpoint run:** 4 inspectors (boundary, grader-TLE, Yjs-substrate/P0, React-lifecycle) → adjudicator = PASS-AFTER-FIXES. All blockers + warnings fixed (endpoint-route `key`, `mounted` submit guard, unknown-key rejection, unified `matchesExpected`, try/finally, write-once init). Simplifier pass applied.
 
 ## 2. Decisions made and why
-- Carried the brief's 7 hard requirements verbatim — no trades. Block model is a projection of the `Y.Doc`, not a parallel store.
-- Anchor held pre-paint by measuring the anchor block's live `getBoundingClientRect().top` and correcting `scrollTop` in `useLayoutEffect` (suppressing the resulting scroll event), rather than trusting estimated heights — estimates only feed scrollbar geometry.
-- Height settle loop capped at 4 passes per window key to avoid infinite measure→re-render.
+- **Grader sandbox = in-browser Web Worker, per-test wall-clock TLE.** P1 is single-user in-browser; native oracle vetting/bank is a P2 concern (open-questions #3). The consumer authoring tests + grading themselves is harmless with no untrusted seeder yet.
+- **Endpoint content lives in a per-endpoint `Y.Doc`** (`es-<id>`), substrate preserved for P3 multi-user; registry (localStorage) is only an index + result cache, not a content store.
+- **Public repo** (user chose it over private) so CI-gated auto-merge can run; agent-initiated push required explicit user OK (classifier blocked the first attempt).
+- **Deferred, tracked (NOT P1 gaps):** consumer-oracle vetting → P2; hidden-answers-in-doc privacy → P3; `programmatic` enforcement → P3/P4 (needs peer admission); contract-6 push callback → optional (pull path works).
 
 ## 3. What was tested and how
-- `npm test` — 12/12 pass, incl. all four milestone criteria (insert-above, delete-above, merged-anchor redirect, reload restore) in `src/test/milestone.test.ts`. `npm run typecheck` clean.
-- **Verified live in Chrome:** seeded 400 blocks, scrolled mid-doc (top = "Paragraph 38" @5px), clicked "+50 above camera" → top stayed exactly "Paragraph 38" @5px, scrollTop 1108→3398, only ~147/452 blocks in DOM. Virtualization + anchoring confirmed in the real DOM. No console errors. Visual = convincing Google Docs M3 dark. Cleared the test IndexedDB after.
+- `npm run typecheck` clean; `npx vitest run` **39/39** (schema 14, grader 5, endpoint 4, factory 4, + P0 12); `npm run build` green (worker bundles as its own chunk). Playwright milestone e2e verified green earlier by the CI agent locally (3× stable).
+- Not yet run: CI on GitHub (no PR pushed yet); the ide-es grade path not yet exercised live in-browser this session (worker path covered by unit tests via a fake executor, not the real Worker).
 
 ## 4. Files needing attention
-- `docs/architecture/boundaries.md` — wire schemas still prose only; pin as versioned files **before P1**, not needed for P0.
-- Nothing broken. Build is green and committed.
+- Branch `feat/p1-endpoint-spawners` is committed but **not pushed**; PR not yet opened. CONTEXT.md is the only uncommitted file (this handoff).
+- GitHub repo has no branch protection / required-checks yet — needed for auto-merge to actually gate.
+- `IdeEndpointView` keeps a local `code` state with no CRDT observer (fine single-user; revisit at P3).
 
 ## 5. Next step
-P0 is done and committed — **stop per the brief.** P1 (endpoint spawners / schemas) starts only after the wire schemas in `endpoint-spawners.md` + `boundaries.md` are pinned as versioned files. If continuing to polish P0 instead: real caret/selection styling and menu/dropdown behavior are stubbed.
+Commit this handoff, push `feat/p1-endpoint-spawners`, open a PR labeled `automerge`, enable repo auto-merge + required checks (`verify`, `e2e`), then set a wakeup to poll CI and squash-merge when green.
