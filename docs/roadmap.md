@@ -33,9 +33,10 @@ Milestone: a schema in produces a working, gradable IDE endpoint out.
 
 ## P2 — PersonalServer integration (programmatic seed)
 
-- PersonalServer (Claude-only MCP) seeds an ide-es schema programmatically and receives a spawned
-  endpoint URL plus a result URL to poll for the verdict (contract 6 in
-  [architecture/boundaries.md](architecture/boundaries.md)). It does not run the editor.
+- PersonalServer (Claude-only MCP) seeds an ide-es schema programmatically (baking in its own
+  `resultCallbackUrl`) and gets back a spawn URL; on submit Scroll pushes the verdict to that callback
+  (contract 6 in [architecture/boundaries.md](architecture/boundaries.md)). It does not run the
+  editor.
 - Degrade cleanly when Scroll is not running.
 - See [integrations/personalserver.md](integrations/personalserver.md).
 

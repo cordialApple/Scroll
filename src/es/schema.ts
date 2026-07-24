@@ -69,6 +69,10 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0
 }
 
+export function isHttpUrl(v: unknown): v is string {
+  return typeof v === 'string' && /^https?:\/\//.test(v)
+}
+
 function rejectUnknown(o: Record<string, unknown>, allowed: string[], errors: string[], path: string): void {
   for (const k of Object.keys(o)) {
     if (!allowed.includes(k)) errors.push(`${path} has unknown key '${k}'`)
@@ -88,8 +92,8 @@ function checkCommon(o: Record<string, unknown>, errors: string[]): void {
     errors.push("lifecycleOwner must be 'human' or 'consumer'")
   if (!PRESETS.includes(o.programmatic as ProgrammaticPreset))
     errors.push("programmatic must be 'on' or 'off'")
-  if (o.resultCallbackUrl !== undefined && typeof o.resultCallbackUrl !== 'string')
-    errors.push('resultCallbackUrl must be a string when present')
+  if (o.resultCallbackUrl !== undefined && !isHttpUrl(o.resultCallbackUrl))
+    errors.push('resultCallbackUrl must be an http(s) URL when present')
 }
 
 export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchema> {
