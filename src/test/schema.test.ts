@@ -100,6 +100,15 @@ describe('ide-es validation', () => {
     })
     expect(r.ok).toBe(false)
   })
+  it('accepts an http(s) resultCallbackUrl (contract-6 notify target)', () => {
+    expect(validateIdeEsSchema({ ...validIde, resultCallbackUrl: 'http://127.0.0.1:47113/v/x?k=s' }).ok).toBe(true)
+    expect(validateIdeEsSchema({ ...validIde, resultCallbackUrl: 'https://host/v/x' }).ok).toBe(true)
+  })
+  it('rejects a non-http resultCallbackUrl (no javascript:/data: exfil scheme)', () => {
+    const r = validateIdeEsSchema({ ...validIde, resultCallbackUrl: 'javascript:alert(1)' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors.join(' ')).toContain('resultCallbackUrl')
+  })
 })
 
 describe('validateEndpointSchema dispatches on kind', () => {

@@ -78,7 +78,8 @@
     },
     "resultCallbackUrl": {
       "type": "string",
-      "description": "Contract 6. Opaque consumer-supplied URL; Scroll POSTs the verdict payload fire-and-forget."
+      "pattern": "^https?://",
+      "description": "Contract 6. Opaque consumer-supplied http(s) URL; on submit Scroll POSTs the ResultPayload fire-and-forget (correlation must be baked in by the consumer, since the endpoint id is browser-minted)."
     }
   }
 }

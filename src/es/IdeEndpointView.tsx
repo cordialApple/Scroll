@@ -11,6 +11,7 @@ import { createWorkerExecutor } from './workerExecutor'
 import { grade, matchesExpected, toResultPayload, type Verdict } from './grader'
 import { setResult } from './registry'
 import { resultUrl } from './factory'
+import { notifyResult } from './notify'
 
 type SampleRun = { name: string; ok: boolean; got: string }
 
@@ -64,8 +65,10 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
     try {
       const v = await grade(id, schema, code, exec, Date.now())
       if (!mounted.current) return
+      const payload = toResultPayload(v)
       recordVerdict(doc, v)
-      setResult(id, toResultPayload(v))
+      setResult(id, payload)
+      void notifyResult(schema, payload)
       setVerdict(v)
       setAttempts(readAttempts(doc))
     } finally {
