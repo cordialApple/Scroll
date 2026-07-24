@@ -1,0 +1,104 @@
+:root {
+  color-scheme: dark;
+
+  --surface: #1f1f1f;
+  --surface-container-lowest: #0e0e0e;
+  --surface-container-low: #28282a;
+  --surface-container: #2d2e31;
+  --surface-container-high: #313336;
+  --surface-container-highest: #444746;
+
+  --on-surface: #e3e3e3;
+  --on-surface-variant: #c4c7c5;
+  --disabled: rgba(227, 227, 227, 0.12);
+
+  --primary: #a8c7fa;
+  --on-primary: #062e6f;
+  --primary-container: #004a77;
+  --on-primary-container: #c2e7ff;
+  --caret: #8ab4f8;
+  --selection: rgba(168, 199, 250, 0.28);
+  --active-tint: #394457;
+
+  --outline: #8e918f;
+  --outline-variant: #444746;
+  --error: #f2b8b5;
+  --success: #6dd58c;
+  --comment: #fdd663;
+
+  --state-hover: rgba(227, 227, 227, 0.08);
+  --state-focus: rgba(227, 227, 227, 0.12);
+  --state-dragged: rgba(227, 227, 227, 0.16);
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+
+  --elevation-menu: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14),
+    0 1px 10px 0 rgba(0, 0, 0, 0.12);
+  --elevation-dialog: 0 5px 5px -3px rgba(0, 0, 0, 0.2), 0 8px 10px 1px rgba(0, 0, 0, 0.14),
+    0 3px 14px 2px rgba(0, 0, 0, 0.12);
+  --elevation-sheet: 0 1px 3px 1px rgba(0, 0, 0, 0.35), 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+
+  --font-ui: 'Google Sans', Roboto, RobotoDraft, Helvetica, Arial, sans-serif;
+  --font-doc: Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+.icon {
+  font-family: 'Material Symbols Outlined', var(--font-ui);
+  font-weight: 400;
+  line-height: 1;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 8px;
+  border: 4px solid transparent;
+  background-clip: padding-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--outline);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--on-surface-variant);
+  background-clip: padding-box;
+}
