@@ -43,6 +43,21 @@ Milestone: a schema in produces a working, gradable IDE endpoint out.
 Milestone: Claude, in conversation, seeds a problem and hands back a unique Scroll IDE URL that
 grades on submit.
 
+## Q — Property-based testing in CI (cross-cutting quality track)
+
+- Not a phase; runs alongside the P-line. Encodes Scroll's product promise as PBT properties
+  (`fast-check`), because the hard bugs are state-evolution bugs across doc mutations / remote edits /
+  viewport / layout / virtualization, not pure-function bugs.
+- Small and always-on inside the existing `verify` CI job (no nightly fuzzing farm): PR = fixed seed
+  short campaign; main push = heavier + run-number-seeded second campaign; failures dump a
+  `{seed, ops, expected, observed}` artifact promoted to a committed regression fixture and replayed.
+- Property families: relative-anchoring invariants, virtualization/estimate-drift, model-based
+  (`fc.commands`), in-memory Yjs convergence, viewport-chaos sequences — each an adjudicator-gated
+  PR. Q1 generalizes the P0 anti-jump e2e into an in-memory property. See
+  [plans/pbt-in-ci.md](plans/pbt-in-ci.md).
+
+Milestone: a random N-step editing trace that breaks anchoring is a minimized, replayable fixture.
+
 ## P3 — Multi-user mode (two localhost instances)
 
 - Yjs room per document; `y-websocket` (or Hocuspocus) provider; awareness for presence.

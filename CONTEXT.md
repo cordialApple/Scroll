@@ -1,29 +1,47 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-24 08:36 · branch: feat/p2-programmatic-spawn · session: P1 done+merged; P2 Scroll-side spawn-by-URL built + gated, opening PR #3_
+_Last updated: 2026-07-24 23:00 · branch: main · session: P2 Stage S1 merged; S2 + PBT track queued_
 
-## 0. Where things stand
-- **main = `2352e9d`** (P1 spawners PR #1 + live-grading e2e PR #2, both merged & CI-green).
-- **Stage 4 done on `feat/p2-programmatic-spawn`** — programmatic spawn-by-URL. Inspectors (security + routing) → adjudicator = PASS. Simplifier: no changes. Next: gated PR #3 → auto-merge.
-- Loop rule (user): `adjudicator` gates every PR and any CI/e2e authoring. See memory `scroll-build-loop`.
-
-## 1. What changed this session (Stage 4)
-- `src/es/programmatic.ts` — base64url schema codec (`encodeSchema`/`decodeSchema`/`programmaticSpawnUrl`) with a 64KB payload cap.
-- `src/es/factory.ts` — `create_endpoint(input)` kind-dispatch (validates before spawn).
-- `src/es/SpawnView.tsx` + `#/es/new?s=<base64>` route in `App.tsx` — decode → validate → spawn → `location.replace` to `#/es/<id>` (replace, not push, so Back doesn't re-spawn).
-- `src/es/schema.ts` — **security:** `entry.functionName` must match `/^[A-Za-z_$][A-Za-z0-9_$]*$/` (closes a `new Function` template-injection reachable now that schemas come from untrusted URLs — both the worker template and the seeded code stub).
-- Launcher "Spawn via URL (sample)" button. Tests: `programmatic.dom.test.ts` (codec, dispatch, oversize, injection-adjacent), schema injection-guard test, `e2e/programmatic.spec.ts` (spawn→grade→Accepted, Back-no-respawn, garbage-payload error UI).
+## 1. What changed this session
+- **S1 (contract-6 callback) merged to main as `ce45c73` (PR #4, CI-green, auto-merged).**
+- `src/es/notify.ts` (new) — `notifyResult(schema, payload)`: fire-and-forget POST of `ResultPayload`
+  to `schema.resultCallbackUrl`; http(s)-guarded, 3 attempts, exponential backoff, per-attempt 5s
+  `AbortSignal.timeout`, swallow-all-errors.
+- `src/es/IdeEndpointView.tsx` — `void notifyResult(schema, payload)` after the durable local write
+  (`recordVerdict`/`setResult`), so delivery is independent of local truth.
+- `src/es/schema.ts` — shared `isHttpUrl` guard; `resultCallbackUrl` (when present) must be http(s).
+- Docs + pinned JSON contracts moved from a poll model to the push/callback model; contracts gained
+  `pattern: ^https?://`.
+- `docs/plans/pbt-in-ci.md` (new, fable) — staged plan for property-based testing in CI.
+- `docs/roadmap.md` — folded in cross-cutting **Q — PBT-in-CI** track.
 
 ## 2. Decisions made and why
-- **URL-encoded schema is the programmatic seam** — host-agnostic; a future C# MCP server just builds this URL. Scroll validates every field (rejectUnknown + identifier guard) before spawning; the URL path uses the exact same validators as the dev-console path (no weaker parallel path).
-- **`location.replace` for the redirect** — avoids an orphan endpoint per browser-Back.
+- **Consumer-minted `resultCallbackUrl` carries correlation** — the endpoint id is browser-minted, so
+  a consumer (PersonalServer) cannot poll by id; it bakes its own loopback URL into the schema and
+  Scroll pushes the verdict on submit. Keeps Scroll consumer-blind (payload = `ResultPayload` only).
+- **Fire-and-forget, never surfaces to user** — an unreachable consumer must not break grading; local
+  verdict is the durable truth.
+- **Callback-URL SSRF flag accepted as intended contract-6 design** (adjudicator) — payload is
+  non-sensitive (pass/fail/counts) and delivery is Submit-gated; standing rule: payload stays
+  non-sensitive. Scheme guard blocks javascript:/data:/file:/protocol-relative.
+- **PBT via fast-check, node-only, inside existing `verify` job** — zero new CI infra, no nightly farm.
 
 ## 3. What was tested and how
-- `typecheck` clean · `vitest` **49/49** · `playwright` **6/6** (P0 anti-jump, grading accept/wrong/TLE, programmatic spawn+grade / Back-no-respawn / garbage-payload) · `build` green.
+- `typecheck` clean · `vitest` **55/55** · `playwright` **8/8** (incl. new `callback.spec.ts`:
+  intercepts cross-origin POST incl. CORS preflight, asserts exact `ResultPayload`; asserts no POST
+  when no callback url) · `build` green. All re-run after adjudicator's two fixes.
+- Quality gate: simplifier → 2 inspector lenses (blind delivery; url injection/exfil) → adjudicator
+  **PASS-WITH-FIXES**.
 
 ## 4. Files needing attention
-- Deferred debt (adjudicator, not blocking): registry `localStorage` grows unbounded (no eviction) → P3 persistence; `playwright.config` `retries:2` can mask flakiness; StrictMode not enabled (ran-ref already safe).
-- Full **P2** (C# PersonalServer MCP that seeds a schema + builds a spawn URL + polls the result URL) remains a separate cross-app decision — Scroll side is now ready for it.
+- S1 adjudicator debt (deferred, non-blocking): (a) doc-es allows `resultCallbackUrl` but never fires
+  it — decide inert-by-design vs reject; (b) `submit()` has no `catch` around `grade()` (throwing
+  grader silently no-ops); (c) add callback-URL trust boundary to a contract-6 promotion checklist.
+- Prior debt: registry `localStorage` unbounded (→P3); `playwright.config` `retries:2` can mask flake.
+- `docs/plans/pbt-in-ci.md` — plan only, not implemented; Q1 extracts effective-anchor fallback from
+  `Editor.tsx` (~114–120) to a pure `src/doc/anchor.ts` first.
 
 ## 5. Next step
-Open PR #3 (label `automerge`), let CI + auto-merge land it, then decide with the user whether to start P2-proper (C# MCP server — cross-app, needs direction) or a smaller in-repo stage (e.g. doc-es e2e, registry eviction, real caret/selection polish).
+Start **Stage S2** — golden-vector fixtures pinning the contract-6 `ResultPayload` wire shape (a
+committed JSON fixture + a test asserting `toResultPayload` output matches it byte-for-byte, so the
+consumer contract can't drift silently) — on a new branch, adjudicator-gated, then PR with `automerge`.
