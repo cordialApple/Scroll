@@ -1,0 +1,6 @@
+[
+  { "endpointId": "ep_golden", "status": "pass", "withinBudget": true, "passed": 2, "total": 2, "at": 1700000000000 },
+  { "endpointId": "ep_golden", "status": "fail", "withinBudget": true, "passed": 1, "total": 2, "at": 1700000000000 },
+  { "endpointId": "ep_golden", "status": "tle", "withinBudget": false, "passed": 1, "total": 2, "at": 1700000000000 },
+  { "endpointId": "ep_golden", "status": "error", "withinBudget": true, "passed": 0, "total": 2, "at": 1700000000000 }
+]
