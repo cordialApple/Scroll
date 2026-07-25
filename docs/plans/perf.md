@@ -157,7 +157,19 @@ stale hint is corrected, never trusted. Teeth: `src/test/perfLocate.test.ts` spi
 `get` and asserts a valid hint touches O(1) slots while no hint scans O(n) (sabotage of the short-circuit
 → hinted count jumps to N, RED). Structural insert/remove staying O(n) inside `OrderIndex.rebuild` is the
 deliberate first-cut noted above (text edits ≫ structural changes); a treap upgrade to O(log n) structural
-ops is the remaining, optional follow-up (issue #27).
+ops is the remaining, optional follow-up (issue #27) — **landed, see Stage 7 below**.
+
+### Stage 7 (2026-07-25): `perf(layout): treap-backed OrderIndex — O(log n) structural insert/remove` (#27)
+
+Closes the last O(n) in the hot path. `buildOrderIndex` now returns a `TreapOrderIndex`: an implicit
+(position-keyed) order-statistics treap, balanced by an FNV-1a + murmur3-fmix32 hash of the id (deterministic
+— survives the PBT entropy freeze — and ~2.4·log2(n) deep in practice). Split/merge by rank, no rotations;
+parent pointers let `indexOf` walk up to a rank and `setHeight` repair `sumH` upward, both O(log n). One
+semantic shift: `indexOf` moves O(1)→O(log n); every consumer is fine with it and the Stage 3b write-path
+hint still verifies-then-trusts. `ArrayOrderIndex` is retained as the **differential oracle**. Teeth: a
+differential PBT pins treap ≡ array across every method after random op sequences (sabotaging `setHeight`'s
+upward repair → RED); a balance test caps depth at 4·log2(N) (flattening priorities to a path → RED). The
+structural cost only bit near the ~100k-block ceiling per op, so this is completeness, not a felt fix.
 
 ---
 
