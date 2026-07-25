@@ -28,8 +28,11 @@ async function waitFor(pred: () => boolean, timeoutMs = 4000): Promise<void> {
   }
 }
 
+const sockets: HocuspocusProviderWebsocket[] = []
 function wsPeer(url: string): HocuspocusProviderWebsocket {
-  return new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket })
+  const s = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket })
+  sockets.push(s)
+  return s
 }
 
 let server: Hocuspocus | null = null
@@ -37,6 +40,7 @@ const handles: DocHandle[] = []
 
 afterEach(async () => {
   for (const h of handles.splice(0)) h.destroy()
+  for (const s of sockets.splice(0)) s.destroy()
   if (server) {
     await server.destroy()
     server = null
@@ -76,4 +80,19 @@ describe('P3.1 network provider seam', () => {
     expect(h.network).not.toBeNull()
     expect(blockViews(h.doc).length).toBeGreaterThan(0)
   }, 3000)
+
+  it('destroy() closes the network transport (no leaked reconnect loop)', async () => {
+    const port = await freePort()
+    server = await startScrollServer({ port })
+    const peer = wsPeer(`ws://127.0.0.1:${port}`)
+    const h = openDoc(`peerClose-${port}`, { room: `room-${port}`, seed: true, websocketProvider: peer })
+    handles.push(h)
+    await h.whenSynced
+    await waitFor(() => peer.shouldConnect)
+
+    h.destroy()
+
+    // preserveConnection:false must let destroy() disconnect the socket; without the fix it stays true.
+    expect(peer.shouldConnect).toBe(false)
+  })
 })

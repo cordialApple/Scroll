@@ -35,11 +35,14 @@ export function openDoc(docId: string, opts: OpenDocOptions = {}): DocHandle {
     })
   })
 
+  // preserveConnection:false so destroy() actually closes the socket. It defaults true (meant for
+  // sharing one socket across docs); we run one provider per doc, so a kept-alive socket is a leaked
+  // reconnect loop on every unmount.
   let network: HocuspocusProvider | null = null
   if (opts.websocketProvider) {
-    network = new HocuspocusProvider({ websocketProvider: opts.websocketProvider, name: room, document: doc })
+    network = new HocuspocusProvider({ websocketProvider: opts.websocketProvider, name: room, document: doc, preserveConnection: false })
   } else if (opts.wsUrl) {
-    network = new HocuspocusProvider({ url: opts.wsUrl, name: room, document: doc })
+    network = new HocuspocusProvider({ url: opts.wsUrl, name: room, document: doc, preserveConnection: false })
   }
 
   const destroy = () => {
