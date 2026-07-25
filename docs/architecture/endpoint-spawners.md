@@ -16,7 +16,10 @@ Nearly config-free by design, but it exists so the spawn seam is uniform (one Fa
 - **initial content** (optional) — seed blocks; empty buffer if absent.
 - **lifecycle owner** — `human` (durable, user-owned doc) or `consumer` (ephemeral endpoint).
 - **programmatic preset** — the contract-3 selection.
-- **result / callback target** (optional) — per contract 6, for lifecycle events.
+
+No `resultCallbackUrl` (F-04): a doc-es has no grade/submit lifecycle, so a result callback would never
+fire. The validator rejects it rather than silently accept an inert field — contract-6 callbacks are an
+ide-es capability.
 
 Like the ide-es schema, it is the entire contract: a consumer never reaches past it, and neither side
 changes it alone (contract 2 in [boundaries.md](boundaries.md)).

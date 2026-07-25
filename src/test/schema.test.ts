@@ -57,6 +57,11 @@ describe('doc-es validation', () => {
     const r = validateDocEsSchema({ ...validDoc, initialContent: [{ type: 'code', text: 'x' }] })
     expect(r.ok).toBe(false)
   })
+  it('rejects resultCallbackUrl — doc-es has no graded result to POST (F-04)', () => {
+    const r = validateDocEsSchema({ ...validDoc, resultCallbackUrl: 'https://host/v/x' })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors.join(' ')).toContain('resultCallbackUrl')
+  })
 })
 
 describe('ide-es validation', () => {
