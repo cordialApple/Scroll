@@ -22,8 +22,8 @@ type EOp =
   | { k: 'merge'; sel: number }
   | { k: 'append'; type: BlockType; text: string }
 
-// Height variance is load-bearing: types + line-crossing lengths make estimateHeight non-uniform, so
-// a prefix-sum mismatch actually discriminates. (Uniform heights made ixEst drift undetectable.)
+// height variance load-bearing: types+line-crossing lengths make estimateHeight non-uniform so prefix-sum mismatch
+// discriminates (uniform heights made drift undetectable)
 const typeArb = fc.constantFrom<BlockType>('paragraph', 'heading', 'quote')
 const textArb = fc.string({ maxLength: 300 })
 
@@ -35,14 +35,12 @@ const eopArb: fc.Arbitrary<EOp> = fc.oneof(
   fc.record({ k: fc.constant('append' as const), type: typeArb, text: textArb }),
 )
 
-// The exact drift oracle: the incrementally-maintained model must equal a from-scratch rebuild of
-// the same doc — order, per-block estimate, and both indices' prefix-heights — after EVERY op.
+// drift oracle: incremental model must == from-scratch rebuild (order, estimates, both indices' prefix-heights) after EVERY op
 function tracksFresh(model: DocModel, doc: Y.Doc, src: HeightSource): boolean {
   const fresh = buildDocModel(doc, src)
   if (JSON.stringify(model.order) !== JSON.stringify(fresh.order)) return false
   if (JSON.stringify(model.order) !== JSON.stringify(blockOrder(doc))) return false
-  // Direct structural equality on both indices — catches ghost/misplaced entries regardless of
-  // height, so ixEst drift is detected even where prefix-sums happen to coincide.
+  // structural equality on both indices catches ghost/misplaced entries regardless of height — detects ixEst drift even when prefix-sums coincide
   if (JSON.stringify(model.ix.order()) !== JSON.stringify(fresh.ix.order())) return false
   if (JSON.stringify(model.ixEst.order()) !== JSON.stringify(fresh.ixEst.order())) return false
   for (const id of model.order) if (model.estimates.get(id) !== fresh.estimates.get(id)) return false
@@ -90,9 +88,8 @@ describe('PBT: incremental Editor state tracks a full rebuild (perf S4 drift ora
     )
   })
 
-  // A fixed measured-height map exercises the effective index (ix ≠ ixEst): applyEvents must feed
-  // measured?estimate into ix on insert/edit, and it must still equal a fresh rebuild under the same
-  // source. (Static source ⇒ a fresh rebuild reproduces exactly what the incremental path produced.)
+  // fixed measured-height map exercises effective index (ix≠ixEst): applyEvents must feed measured??estimate into ix
+  // on insert/edit, still == fresh rebuild under same source (static source ⇒ fresh reproduces incremental exactly)
   it('effective index tracks a full rebuild under a fixed measured-height map', () => {
     const measured: HeightSource = {
       measuredOf: (id) => {

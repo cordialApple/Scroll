@@ -73,8 +73,7 @@ test('heightsRef eviction bounds memory and the camera survives scroll-away-and-
   const top0 = await readMetrics(page)
   expect(top0.anchorId, 'anchor resolves at top').toBeTruthy()
 
-  // Scroll down contiguously so a long run of blocks gets measured (exceeding the trigger), far
-  // enough that early blocks fall outside the band and are evicted.
+  // scroll down contiguously so long run of blocks gets measured (past trigger), early blocks fall outside band + evicted
   for (let step = 1; step <= 10; step++) {
     await page.evaluate(
       ({ scrollSel, frac }) => {
@@ -88,15 +87,13 @@ test('heightsRef eviction bounds memory and the camera survives scroll-away-and-
 
   const mid = await readMetrics(page)
   expect(mid.scrollTop, 'scrolled into the document').toBeGreaterThan(1000)
-  // Eviction fired: heightsRef is bounded to ~band. This threshold is non-vacuous — the same scroll
-  // with eviction disabled leaves ~320 measured (the swept prefix), so `< SEED_COUNT` would pass even
-  // with eviction off; BAND_CEIL sits between the ~80-entry band and that ~320 no-evict cumulative.
+  // eviction fired: heightsRef bounded to ~band. non-vacuous threshold — same scroll w/ eviction off leaves ~320
+  // measured (swept prefix), so <SEED_COUNT would pass even w/o eviction; BAND_CEIL sits between ~80-entry band and ~320 no-evict
   expect(mid.heightsSize, 'heightsRef bounded to ~band, not blocks-ever-rendered').toBeLessThan(BAND_CEIL)
   expect(mid.nodeCount, 'still virtualized mid-doc').toBeLessThan(300)
 
-  // Fling back to the very top — the viewport lands in what is now old-spacer territory, forcing the
-  // onScroll findByOffset fallback (no rendered block straddles the top mid-fling). This is the
-  // regression for the eviction/geometry hole: it must resolve via ix, not the evicted heightsRef.
+  // fling to top: viewport lands in old-spacer territory, forces onScroll findByOffset fallback (no block straddles
+  // top mid-fling) — regression for eviction/geometry hole, must resolve via ix not evicted heightsRef
   await page.evaluate((scrollSel) => {
     ;(document.querySelector(scrollSel) as HTMLElement).scrollTop = 0
   }, SCROLL_SELECTOR)
@@ -107,8 +104,7 @@ test('heightsRef eviction bounds memory and the camera survives scroll-away-and-
   expect(back.scrollTop, 'landed at the top').toBeLessThan(50)
   expect(back.nodeCount, 'window covers the viewport after return').toBeGreaterThan(3)
   expect(back.nodeCount).toBeLessThan(300)
-  // The resolved top block is near the document start, not a stale far-down index (the hole would
-  // teleport the camera by Σ(measured−estimate) over evicted blocks).
+  // resolved top block near doc start, not stale far-down index (hole would teleport camera by Σ(measured−estimate) over evicted blocks)
   const backIdx = await page.evaluate(
     ({ id }) => {
       const w = window as unknown as { __scroll: { doc: unknown; blockOrder: (d: unknown) => string[] } }

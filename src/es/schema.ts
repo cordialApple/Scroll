@@ -101,9 +101,8 @@ export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchem
   if (input.schemaVersion !== DOC_ES_SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${DOC_ES_SCHEMA_VERSION}`)
   checkCommon(input, errors)
-  // F-04: doc-es has no grade/submit lifecycle, so a callback would never fire. Reject it (kept in
-  // DOC_KEYS so this descriptive message wins over a generic unknown-key error) instead of silently
-  // accepting an inert field. Result callbacks are an ide-es capability.
+  // F-04: doc-es has no grade lifecycle, callback never fires — reject (kept in DOC_KEYS so this msg
+  // beats generic unknown-key error) instead of silently accepting; callbacks are ide-es only
   if (input.resultCallbackUrl !== undefined)
     errors.push('resultCallbackUrl is not supported on doc-es (it produces no graded result); use ide-es')
   if (input.initialContent !== undefined) {

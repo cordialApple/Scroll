@@ -29,10 +29,9 @@ function defineOwn(o: object, key: string, value: unknown): void {
   Object.defineProperty(o, key, { value, configurable: true, writable: true })
 }
 
-// Neutralize every entropy/timer source a synchronous property body can reach — Math.random,
-// wall clock, crypto.randomUUID (ids.ts) AND crypto.getRandomValues (Yjs clientID via lib0) — so a
-// run is pure: same seed -> same case -> same ids/clientIDs -> same outcome. Synchronous fn only;
-// an async fn would let its continuations run after the finally has already restored the globals.
+// neutralizes entropy/timer sources sync property body can reach: Math.random, wall clock, crypto.randomUUID
+// (ids.ts), crypto.getRandomValues (Yjs clientID via lib0) — same seed -> same case -> same ids -> same outcome.
+// sync only; async fn would run continuations after finally restores globals
 export function withDeterminism<T>(fn: () => T): T {
   const crypto = (globalThis as { crypto?: CryptoLike }).crypto
   const had = crypto ? { uuid: 'randomUUID' in crypto, grv: 'getRandomValues' in crypto } : null

@@ -22,13 +22,12 @@ import { pbtAssert } from '../harness'
 const REMOTE = 'remote'
 const NONE: ReadonlySet<string> = new Set()
 
-// U+2693 marker frames every seed block's text. fast-check string()/nat text is printable ASCII, so
-// no generated insert/edit can ever forge a marker — an assertion that a block's text still contains
-// `⚓j⚓` is proof the seed block j's content survived, not a coincidental collision.
+// ⚓ marker frames seed text; fast-check text is printable ASCII so can't forge marker — text containing ⚓j⚓ proves
+// seed block j survived, not coincidence
 const MARK = (i: number) => `⚓${i}⚓`
 
-// Set while a local op runs so the 'update' observer tags the emitted update with its author and
-// enqueues it; a REMOTE applyUpdate carries origin REMOTE and is never re-enqueued (no feedback).
+// set during local op so 'update' observer tags emitted update w/ author + enqueues; REMOTE applyUpdate carries
+// origin REMOTE, never re-enqueued (no feedback)
 let currentLocal: number | null = null
 
 type Produced = { from: number; update: Uint8Array }
@@ -62,8 +61,8 @@ function makeReplicas(n: number, initialBlocks: number): Net {
   return { docs, base, produced, blocked: new Set() }
 }
 
-// Run a mutation on one replica outside the generated schedule (the injected anchor merge). Captured
-// by the observer because currentLocal is set, so it propagates like any local op.
+// runs mutation outside generated schedule (injected anchor merge); observer captures it since currentLocal set,
+// propagates like normal local op
 function asLocal<T>(from: number, fn: () => T): T {
   currentLocal = from
   try {
@@ -79,9 +78,8 @@ type Op =
   | { k: 'delete'; pos: number }
   | { k: 'merge'; pos: number }
 
-// A local op mutates one replica; model.ts mutators transact with the default origin, which the
-// observer captures because currentLocal is set. Ids in `protectedIds` are exempt from edit/delete/
-// merge-away so the anchor-under-concurrency property can pin content that no replica may disturb.
+// mutates one replica; model.ts mutators transact w/ default origin, observer captures via currentLocal.
+// protectedIds exempt from edit/delete/merge so anchor-under-concurrency test can pin undisturbed content
 function doLocalOp(net: Net, from: number, protectedIds: ReadonlySet<string>, op: Op): void {
   const doc = net.docs[from]
   const arr = blocks(doc)
@@ -151,9 +149,8 @@ function runEvent(net: Net, protectedIds: ReadonlySet<string>, e: NetEvent): voi
   }
 }
 
-// Quiescence drain: heal all partitions, then full-mesh state-vector resync to a fixpoint so the
-// convergence assertions have a well-defined final state regardless of what the lossy phase did.
-// Loops until every replica agrees (bounded by n+1 rounds) rather than a fixed 2 — robust for any n.
+// drain: heal partitions, full-mesh resync to fixpoint so convergence asserts have well-defined final state
+// regardless of lossy phase. loops till all agree (bounded n+1 rounds), not fixed 2 — robust for any n
 function drain(net: Net): void {
   net.blocked.clear()
   const n = net.docs.length
@@ -178,8 +175,8 @@ function allEqual(docs: Y.Doc[], key: (d: Y.Doc) => string): boolean {
   return docs.every((d) => key(d) === ref)
 }
 
-// Weighted toward local ops (and, within ops, toward merge) so a schedule reliably exercises the
-// model.ts mutators + redirect path, not just network shuffling of an unchanged seed.
+// weighted toward local ops (esp merge) so schedule exercises model.ts mutators+redirect path, not just network
+// shuffling unchanged seed
 const opArb: fc.Arbitrary<Op> = fc.oneof(
   { arbitrary: fc.record({ k: fc.constant('insert' as const), pos: fc.nat(), text: fc.string({ maxLength: 12 }) }), weight: 3 },
   { arbitrary: fc.record({ k: fc.constant('edit' as const), pos: fc.nat(), text: fc.string({ maxLength: 12 }) }), weight: 2 },
@@ -200,9 +197,8 @@ const scheduleArb = fc.array(eventArb, { maxLength: 50 })
 const nArb = fc.integer({ min: 2, max: 4 })
 
 describe('PBT: distributed convergence + anchor-under-concurrency [in-memory, no provider]', () => {
-  // Asserts Scroll's TWO parallel CRDT structures — the block array AND the redirect Y.Map — converge
-  // in lockstep across replicas. Nothing about Yjs alone guarantees a consumer's separate structures
-  // stay mutually consistent; this pins that they do for any lossy/reordered schedule.
+  // asserts TWO parallel CRDT structures (block array + redirect Y.Map) converge in lockstep — Yjs alone doesn't
+  // guarantee consumer's separate structures stay mutually consistent; pins that they do for any lossy/reordered schedule
   it('[SEC] all replicas converge to identical blockViews and redirects after any schedule', () => {
     pbtAssert(
       fc.property(nArb, fc.integer({ min: 1, max: 6 }), scheduleArb, (n, init, events) => {
@@ -214,9 +210,8 @@ describe('PBT: distributed convergence + anchor-under-concurrency [in-memory, no
     )
   })
 
-  // Stronger than [SEC]: compares the converged state to an INDEPENDENT once-each replay of the
-  // produced updates. An order-dependent bug in model.ts would make converged ≠ ref even though the
-  // replicas agree with each other. Every replica must match the canonical replay, not just docs[0].
+  // stronger than [SEC]: compares converged state to INDEPENDENT once-each replay of produced updates — order-dependent
+  // bug could make converged≠ref even if replicas agree w/ each other. every replica must match canonical replay, not just docs[0]
   it('[commutativity] adversarial reorder+dup converges to the canonical once-each replay', () => {
     pbtAssert(
       fc.property(nArb, fc.integer({ min: 1, max: 6 }), scheduleArb, (n, init, events) => {
@@ -234,18 +229,16 @@ describe('PBT: distributed convergence + anchor-under-concurrency [in-memory, no
     )
   })
 
-  // The DS thesis with teeth: replica 0 merges the anchor away (creating a redirect), while other
-  // replicas concurrently mutate a doc where the anchor still exists. After convergence, on EVERY
-  // replica the redirect must have propagated and resolveEffectiveAnchor must chase it to the
-  // predecessor — exercising anchor.ts:11-12 (the redirect branch), never the top-of-doc fallback.
-  // Anchor + predecessor are protected so their content is stable and the successor never leaves.
+  // DS thesis w/ teeth: replica0 merges anchor away (redirect) while others concurrently mutate live-anchor doc.
+  // after convergence every replica's redirect must propagate + resolveEffectiveAnchor chase to predecessor
+  // (anchor.ts:11-12 redirect branch, not top-of-doc fallback). anchor+predecessor protected so content stable
   it('[anchor-under-concurrency] a merged-away anchor resolves to its successor on all replicas', () => {
     pbtAssert(
       fc.property(nArb, fc.integer({ min: 3, max: 8 }), fc.nat(), scheduleArb, (n, init, aSel, events) => {
         const net = makeReplicas(n, init)
         const order0 = blockOrder(net.docs[0])
-        // j>=2 keeps predId off index 0, so eff.blockId===predId strictly distinguishes the redirect
-        // branch from the top-of-doc fallback (which also returns order[0]) in every run.
+        // j>=2 keeps predId off index 0 so eff.blockId===predId strictly distinguishes redirect branch from
+        // top-of-doc fallback (also returns order[0])
         const j = 2 + (aSel % (init - 2))
         const anchorId = order0[j]
         const predId = order0[j - 1]
