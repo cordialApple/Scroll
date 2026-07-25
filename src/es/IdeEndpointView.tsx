@@ -29,6 +29,7 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
   const [verdict, setVerdict] = useState<Verdict | null>(() => readVerdict(doc))
   const [attempts, setAttempts] = useState(() => readAttempts(doc))
   const [samples, setSamples] = useState<SampleRun[]>([])
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const mounted = useRef(true)
   useEffect(() => () => void (mounted.current = false), [])
@@ -62,6 +63,7 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
 
   const submit = async () => {
     setBusy(true)
+    setSubmitError(null)
     try {
       const v = await grade(id, schema, code, exec, Date.now())
       if (!mounted.current) return
@@ -71,6 +73,11 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
       void notifyResult(schema, payload)
       setVerdict(v)
       setAttempts(readAttempts(doc))
+    } catch (e) {
+      // F-05: grade() rejecting is an infra failure (worker crash), distinct from a graded 'error'
+      // verdict. Surface it instead of dying as an unhandled rejection that leaves the user staring
+      // at an unchanged screen with no idea the submit never ran.
+      if (mounted.current) setSubmitError(e instanceof Error ? e.message : String(e))
     } finally {
       if (mounted.current) setBusy(false)
     }
@@ -140,6 +147,11 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
                   {s.ok ? '✓' : '✗'} {s.name}: <code>{s.got.replace(/\n/g, '⏎')}</code>
                 </div>
               ))}
+            </div>
+          )}
+          {submitError && (
+            <div className="es-verdict es-verdict-error" role="alert">
+              <strong>Submit failed</strong> — {submitError}
             </div>
           )}
           {verdict && (

@@ -30,11 +30,6 @@
           "text": { "type": "string" }
         }
       }
-    },
-    "resultCallbackUrl": {
-      "type": "string",
-      "pattern": "^https?://",
-      "description": "Contract 6. Opaque consumer-supplied http(s) URL Scroll POSTs lifecycle events to fire-and-forget. Data, not a dependency."
     }
   }
 }

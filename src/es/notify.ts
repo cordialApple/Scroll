@@ -8,7 +8,7 @@ const ATTEMPT_TIMEOUT_MS = 5000
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function notifyResult(schema: EndpointSchema, payload: ResultPayload): Promise<void> {
-  const url = schema.resultCallbackUrl
+  const url = schema.kind === 'ide-es' ? schema.resultCallbackUrl : undefined
   if (!isHttpUrl(url) || typeof fetch === 'undefined') return
   for (let i = 0; i < ATTEMPTS; i++) {
     try {

@@ -16,7 +16,6 @@ export type DocEsSchema = {
   lifecycleOwner: LifecycleOwner
   programmatic: ProgrammaticPreset
   initialContent?: SeedBlock[]
-  resultCallbackUrl?: string
 }
 
 export type IdeTestCase = {
@@ -92,8 +91,6 @@ function checkCommon(o: Record<string, unknown>, errors: string[]): void {
     errors.push("lifecycleOwner must be 'human' or 'consumer'")
   if (!PRESETS.includes(o.programmatic as ProgrammaticPreset))
     errors.push("programmatic must be 'on' or 'off'")
-  if (o.resultCallbackUrl !== undefined && !isHttpUrl(o.resultCallbackUrl))
-    errors.push('resultCallbackUrl must be an http(s) URL when present')
 }
 
 export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchema> {
@@ -104,6 +101,11 @@ export function validateDocEsSchema(input: unknown): ValidationResult<DocEsSchem
   if (input.schemaVersion !== DOC_ES_SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${DOC_ES_SCHEMA_VERSION}`)
   checkCommon(input, errors)
+  // F-04: doc-es has no grade/submit lifecycle, so a callback would never fire. Reject it (kept in
+  // DOC_KEYS so this descriptive message wins over a generic unknown-key error) instead of silently
+  // accepting an inert field. Result callbacks are an ide-es capability.
+  if (input.resultCallbackUrl !== undefined)
+    errors.push('resultCallbackUrl is not supported on doc-es (it produces no graded result); use ide-es')
   if (input.initialContent !== undefined) {
     if (!Array.isArray(input.initialContent)) errors.push('initialContent must be an array')
     else
@@ -124,6 +126,8 @@ export function validateIdeEsSchema(input: unknown): ValidationResult<IdeEsSchem
   if (input.schemaVersion !== IDE_ES_SCHEMA_VERSION)
     errors.push(`schemaVersion must be ${IDE_ES_SCHEMA_VERSION}`)
   checkCommon(input, errors)
+  if (input.resultCallbackUrl !== undefined && !isHttpUrl(input.resultCallbackUrl))
+    errors.push('resultCallbackUrl must be an http(s) URL when present')
   if (!isNonEmptyString(input.goalCondition)) errors.push('goalCondition must be a non-empty string')
   if (!isNonEmptyString(input.problem)) errors.push('problem must be a non-empty string')
   if (!isObject(input.entry) || input.entry.language !== 'javascript' || !isNonEmptyString(input.entry.functionName))
