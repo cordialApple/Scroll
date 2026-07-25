@@ -1,3 +1,5 @@
+import type { OrderIndex } from './orderIndex'
+
 export interface Anchor {
   blockId: string
   offset: number
@@ -95,6 +97,51 @@ export function windowFor(
     below += heightOf(hm, order[end])
     end++
   }
+  return { start, end }
+}
+
+// Indexed twins of computeLayout / windowFor: identical results, but every whole-doc sumHeights walk
+// and order.indexOf becomes an O(log n) OrderIndex prefix-sum / lookup. Not yet wired into Editor; a
+// PBT pins them deep-equal to the array versions for any doc/anchor/window.
+export function computeLayoutIndexed(ix: OrderIndex, window: Window, anchor: Anchor): LayoutResult {
+  const n = ix.size()
+  const start = clamp(window.start, 0, n)
+  const end = clamp(window.end, start, n)
+  const anchorIdx = Math.max(0, ix.indexOf(anchor.blockId))
+
+  const topSpacer = ix.prefixHeight(start)
+  const windowHeight = ix.prefixHeight(end) - topSpacer
+  const total = ix.totalHeight()
+  const bottomSpacer = total - ix.prefixHeight(end)
+
+  const anchorOffsetTop = ix.prefixHeight(anchorIdx)
+  return {
+    topSpacer,
+    bottomSpacer,
+    anchorOffsetTop,
+    scrollTop: anchorOffsetTop + anchor.offset,
+    contentHeight: topSpacer + windowHeight + bottomSpacer,
+  }
+}
+
+export function windowForIndexed(
+  ix: OrderIndex,
+  anchor: Anchor,
+  viewportHeight: number,
+  overscan: number,
+): Window {
+  const n = ix.size()
+  const anchorIdx = Math.max(0, ix.indexOf(anchor.blockId))
+  const anchorTop = ix.prefixHeight(anchorIdx)
+
+  let start = anchorIdx
+  while (start > 0 && anchorTop - ix.prefixHeight(start) < viewportHeight + overscan) start--
+
+  const base = ix.prefixHeight(anchorIdx + 1)
+  const below0 = anchor.offset < 0 ? -anchor.offset : 0
+  let end = anchorIdx + 1
+  while (end < n && below0 + (ix.prefixHeight(end) - base) < viewportHeight * 2 + overscan) end++
+
   return { start, end }
 }
 
