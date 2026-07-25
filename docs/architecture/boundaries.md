@@ -133,6 +133,19 @@ Reviewer check: notification is pull-by-default; any push target is consumer-sup
 from the seed schema; the payload exposes no internal state; Scroll retries/aborts blind, never
 special-cases a consumer.
 
+**Standing rules (contract-6 promotion checklist), F-02:**
+
+1. **Callback URL is an untrusted outbound sink (trust boundary).** `resultCallbackUrl` is
+   consumer-supplied. Scroll POSTs to it fire-and-forget and treats the target as hostile: http(s)-only
+   (no `javascript:`/`data:` exfil schemes — enforced in `isHttpUrl`), never followed for its response,
+   never a source of Scroll state. Only ide-es carries it; doc-es rejects it (F-04). SSRF exposure is
+   the consumer's own loopback by construction — Scroll gains no consumer concept by calling it.
+2. **The payload stays non-sensitive — enumerated, closed set.** A contract-6 POST carries exactly
+   `ResultPayload` = { endpointId, status, withinBudget, passed, total, at }. No hidden-test IO, no
+   reference solution, no submitted code, no room/peer identity, no Scroll internals. Any field added to
+   the payload must be re-justified against this rule before it ships (`toResultPayload` is the single
+   choke point; the golden vectors pin the shape).
+
 ## 7. Peer credentials (trust root)
 
 Contract 1 says a peer is authenticated and carries a role; this contract says who issues that
@@ -168,6 +181,8 @@ come from the token, not from the peer's claims; token scope is one room.
 5. Can a consumer's seeded schema ever influence the grading verdict? (Must be no.)
 6. Is the schema/protocol changed only bilaterally, never by one side alone?
 7. Is Scroll buildable and testable with zero knowledge that PersonalServer or STARfolio exist?
+8. Contract 6: is the callback URL treated as an untrusted http(s)-only sink, and does the payload stay
+   inside the enumerated non-sensitive `ResultPayload` set? (See §6 standing rules.)
 
 ## Anti-patterns (smells that mean a boundary broke)
 
