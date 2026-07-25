@@ -146,6 +146,19 @@ the fast locate changes nothing but speed.
 **Invariant:** `blockOrder` / `blockViews` outputs unchanged; redirect table writes unchanged
 (the merge+redirect same-transaction atomicity in `model.ts` lines ~122–137 is untouched).
 
+#### Stage 3b (2026-07-25): wire the caller side — hot-path Editor callbacks pass the hint
+
+Stage 3 gave the mutators the `at?` fallback but only the imperative-handle ops (`insertAbove`/
+`deleteAbove`/`mergeAnchorAway`) passed it. The per-keystroke `onEdit`/`onSplit`/`onMerge` still called
+in with no hint, so `resolveBlockIndex` fell through to the O(n) `indexOfBlock` scan on **every**
+keystroke — the exact cost Stage 3 exists to kill. Fix: the callbacks read `modelRef.current.ix.indexOf(id)`
+(O(1) map lookup on the live index) and pass it as `at`; `resolveBlockIndex` still verifies it, so a
+stale hint is corrected, never trusted. Teeth: `src/test/perfLocate.test.ts` spies the `Y.Array` instance's
+`get` and asserts a valid hint touches O(1) slots while no hint scans O(n) (sabotage of the short-circuit
+→ hinted count jumps to N, RED). Structural insert/remove staying O(n) inside `OrderIndex.rebuild` is the
+deliberate first-cut noted above (text edits ≫ structural changes); a treap upgrade to O(log n) structural
+ops is the remaining, optional follow-up (issue #27).
+
 ---
 
 ### Stage 4 — `perf(editor): incremental order/estimates from Yjs delta` **(highest risk)**
