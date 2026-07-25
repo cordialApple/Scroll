@@ -23,26 +23,30 @@ import {
   type BlockView,
 } from '../doc/model'
 import { resolveEffectiveAnchor } from '../doc/anchor'
+import { computeLayoutIndexed, windowForIndexed, type Anchor } from '../layout/layout'
 import {
-  computeLayoutIndexed,
-  windowForIndexed,
-  deriveAnchor,
-  type Anchor,
-  type HeightModel,
-} from '../layout/layout'
-import { buildDocModel, applyEvents, setMeasured, type DocModel, type HeightSource } from './docModel'
+  buildDocModel,
+  applyEvents,
+  setMeasured,
+  evictHeightsOutsideBand,
+  type DocModel,
+  type HeightSource,
+} from './docModel'
 import { saveCamera } from '../doc/camera'
 import { insertAbove, deleteAbove } from '../dev/synthetic'
 import { Block } from './Block'
 import { setCaretOffset } from './caret'
 
 const OVERSCAN = 1200
+const EVICT_MARGIN = 500
+const EVICT_TRIGGER = 2000
 
 export interface EditorApi {
   insertAbove(n: number): void
   deleteAbove(n: number): void
   mergeAnchorAway(): void
   anchorId(): string
+  heightsSize(): number
 }
 
 interface Props {
@@ -106,11 +110,6 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   }, [])
 
   const order = model.order
-
-  const hm: HeightModel = useMemo(
-    () => ({ measured: heightsRef.current, estimate: (id) => model.estimates.get(id) ?? 40 }),
-    [model, heightsVersion, version],
-  )
 
   const effAnchor: Anchor = useMemo(
     () => resolveEffectiveAnchor(order, redirectSource(doc), anchor),
@@ -219,6 +218,10 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     if (changed && settleRef.current.passes < 4) {
       settleRef.current.passes++
       bumpHeights()
+    } else if (!changed && heightsRef.current.size > evictTrigger()) {
+      // Settled: reclaim the measured-height cache outside the band. ix is untouched, so this is
+      // invisible (no spacer/camera change) and needs no re-render.
+      evictHeightsOutsideBand(heightsRef.current, model.ix, renderWindow, effAnchor.blockId, evictMargin())
     }
   })
 
@@ -248,11 +251,17 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
         break
       }
     }
-    const next = domId
-      ? { blockId: domId, offset: Math.max(0, domOff) }
-      : deriveAnchor(scroller.scrollTop, order, hm)
+    let next: Anchor
+    if (domId) {
+      next = { blockId: domId, offset: Math.max(0, domOff) }
+    } else {
+      // Fling into spacer territory: derive from ix (same geometry as the spacers, eviction-
+      // independent) — NOT heightsRef, which diverges from ix once band eviction runs.
+      const r = model.ix.findByOffset(scroller.scrollTop)
+      next = { blockId: r.id, offset: r.offset }
+    }
     if (next.blockId) commitAnchor(next)
-  }, [commitAnchor, order, hm])
+  }, [commitAnchor, model])
 
   const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text), [doc])
   const onSplit = useCallback(
@@ -286,6 +295,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
         if (idx > 0) mergeIntoPrevious(doc, id, idx)
       },
       anchorId: () => effAnchor.blockId,
+      heightsSize: () => heightsRef.current.size,
     }),
     [doc, effAnchor.blockId, model],
   )
@@ -305,11 +315,25 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   )
 })
 
+function devNum(key: '__scrollEvictTrigger' | '__scrollEvictMargin'): number | undefined {
+  if (!import.meta.env.DEV) return undefined
+  const o = (window as unknown as Record<string, unknown>)[key]
+  return typeof o === 'number' && o >= 0 ? o : undefined
+}
+function evictTrigger(): number {
+  return devNum('__scrollEvictTrigger') ?? EVICT_TRIGGER
+}
+function evictMargin(): number {
+  return devNum('__scrollEvictMargin') ?? EVICT_MARGIN
+}
+
 function devDriftCheck(model: DocModel, doc: Y.Doc, src: HeightSource): void {
   const fresh = buildDocModel(doc, src)
+  // ixEst + order are eviction-independent (estimate-only); ix.totalHeight is NOT compared because
+  // band eviction intentionally leaves ix holding measured heights that a fresh (post-evict) rebuild
+  // would derive as estimates — that divergence is by design, not drift.
   if (
     JSON.stringify(model.order) !== JSON.stringify(fresh.order) ||
-    model.ix.totalHeight() !== fresh.ix.totalHeight() ||
     model.ixEst.totalHeight() !== fresh.ixEst.totalHeight()
   ) {
     // eslint-disable-next-line no-console

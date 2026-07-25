@@ -99,3 +99,35 @@ export function setMeasured(model: DocModel, id: string, src: HeightSource): voi
   if (model.ix.indexOf(id) < 0) return
   model.ix.setHeight(id, effective(id, model.estimates.get(id) ?? 40, src))
 }
+
+export interface Band {
+  start: number
+  end: number
+}
+
+// Bound the measured-height cache to O(band): drop entries for blocks outside
+// [window.start - margin, window.end + margin] (or no longer in the doc), never the anchor. `ix` is
+// deliberately NOT touched — the evicted block keeps its last effective height, so spacers are
+// unchanged and the camera cannot jump; on re-entry the block re-measures, and an off-screen edit
+// naturally reverts it to the estimate via applyTextChange (that path is already anti-jump-corrected).
+// Returns the number of entries evicted.
+export function evictHeightsOutsideBand(
+  heights: Map<string, number>,
+  ix: OrderIndex,
+  window: Band,
+  keepId: string,
+  margin: number,
+): number {
+  const lo = window.start - margin
+  const hi = window.end + margin
+  let evicted = 0
+  for (const id of [...heights.keys()]) {
+    if (id === keepId) continue
+    const idx = ix.indexOf(id)
+    if (idx < 0 || idx < lo || idx >= hi) {
+      heights.delete(id)
+      evicted++
+    }
+  }
+  return evicted
+}
