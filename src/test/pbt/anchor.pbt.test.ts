@@ -46,6 +46,18 @@ function measuredAnchorOnly(anchorId: string): HeightModel {
   return { measured: new Map([[anchorId, trueHeight(anchorId)]]), estimate: () => 30 }
 }
 
+// Anchor-only measured, but the above/below estimate is TEXT-LENGTH based (read live from the doc), so
+// an editOther op actually moves a block's height instead of being a layout no-op.
+function textLenAnchorOnly(doc: Y.Doc, anchorId: string): HeightModel {
+  return {
+    measured: new Map([[anchorId, trueHeight(anchorId)]]),
+    estimate: (id: string) => {
+      const i = indexOfBlock(doc, id)
+      return i < 0 ? 30 : 30 + blockText(blocks(doc).get(i)).toString().length
+    },
+  }
+}
+
 function buildDoc(n: number): Y.Doc {
   const doc = createDoc()
   for (let i = 0; i < n; i++) appendBlock(doc, 'paragraph', `block ${i}`)
@@ -167,6 +179,37 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
     )
   })
 
+  // Cross-order dimension: the existing anti-jump test round-trips scrollTop on ONE order. Here we feed
+  // a scrollTop computed on the PRE-mutation order into deriveAnchor on the POST-mutation order — the
+  // physical scroll position the browser still holds the instant a remote mutation lands. The derived
+  // camera must stay well-formed: in-doc, never a negative offset (the naive-derive bug), and a fixed
+  // point of compute∘derive on its own order. Text-length heights make editOther load-bearing.
+  it('a scrollTop persisted across a mutation derives a well-formed, non-negative, idempotent camera', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.nat(), opsArb, fc.nat(), (base, anchorSel, ops, offSel) => {
+        const doc = buildDoc(base)
+        const anchorId = blockOrder(doc)[anchorSel % base]
+        const off = offSel % trueHeight(anchorId)
+        const hm = textLenAnchorOnly(doc, anchorId)
+        const fullWin = () => ({ start: 0, end: blockOrder(doc).length })
+
+        const scrollTop0 = computeLayout(blockOrder(doc), hm, fullWin(), { blockId: anchorId, offset: off }).scrollTop
+
+        for (const op of ops) applyOp(doc, anchorId, op)
+        const order1 = blockOrder(doc)
+        if (!order1.includes(anchorId)) return true
+
+        const naive = deriveAnchor(scrollTop0, order1, hm)
+        if (naive.offset < 0) return false
+        if (!order1.includes(naive.blockId)) return false
+
+        const st = computeLayout(order1, hm, fullWin(), naive).scrollTop
+        const again = deriveAnchor(st, order1, hm)
+        return again.blockId === naive.blockId && again.offset === naive.offset
+      }),
+    )
+  })
+
   it('merged-away anchor redirects to its successor, never a document-top jump', () => {
     pbtAssert(
       fc.property(sizeArb, fc.nat(), (base, sel) => {
@@ -248,8 +291,23 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
         const hm = measuredAll(order)
         const anchor: Anchor = { blockId: anchorId, offset: 0 }
 
-        const win = windowFor(order, hm, anchor, viewportH, 1200)
+        const overscan = 1200
+        const win = windowFor(order, hm, anchor, viewportH, overscan)
         if (!(win.start >= 0 && win.start <= anchorIdx && anchorIdx < win.end && win.end <= order.length))
+          return false
+
+        // Tight pixel-band teeth: the fat overscan must not hide an off-by-one on either bound. The
+        // band above the anchor is viewportH+overscan, below is 2*viewportH+overscan. For each side
+        // assert BOTH coverage (the window reaches the band, or the doc edge) and minimality (one block
+        // narrower would fall short of the band) — minimality is what a bracket-only assert misses.
+        const aboveBand = viewportH + overscan
+        const belowBand = viewportH * 2 + overscan
+        const aboveSum = sumHeights(order, hm, win.start, anchorIdx)
+        if (!(win.start === 0 || aboveSum >= aboveBand)) return false
+        if (anchorIdx > 0 && sumHeights(order, hm, win.start + 1, anchorIdx) >= aboveBand) return false
+        const belowSum = sumHeights(order, hm, anchorIdx + 1, win.end)
+        if (!(win.end === order.length || belowSum >= belowBand)) return false
+        if (win.end > anchorIdx + 1 && sumHeights(order, hm, anchorIdx + 1, win.end - 1) >= belowBand)
           return false
 
         const layout = computeLayout(order, hm, win, anchor)
