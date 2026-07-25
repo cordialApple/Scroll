@@ -1,27 +1,29 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-25 01:45 · branch: main · session: landed Q1/Q2 + perf S1/S2; issue-first workflow adopted; starting perf S3_
+_Last updated: 2026-07-25 02:36 · branch: main · session: perf S1–S4 landed (O(n)→O(log n) compute win complete); Q1/Q2 done_
 
 ## 1. What changed this session
-- **PBT Q1** merged (#8): `src/doc/anchor.ts` (`resolveEffectiveAnchor`) extracted pure; `src/test/pbt/harness.ts` R1 determinism harness (neutralizes Math.random/Date/perf/crypto incl. getRandomValues for Yjs clientID; bans timers); `anchor.pbt.test.ts` 6 in-memory anchoring properties. fast-check 3.23.2 pinned exact.
-- **PBT Q2** merged (#10): `src/test/pbt/distributed/convergence.pbt.test.ts` — N-replica Yjs network-adversary harness. 3 properties: [SEC] blocks+redirects co-converge, [commutativity] all replicas == canonical once-each replay, [anchor-under-concurrency] replica-0 merges the anchor away and every replica resolves the redirect to its predecessor. `j>=2` pins the redirect branch distinct from the top-fallback.
-- **Perf S1** merged (#9): `src/layout/orderIndex.ts` — Fenwick-backed `OrderIndex` (id→index, prefix-height, findByOffset) + equivalence PBT vs `sumHeights`/`deriveAnchor`.
-- **Perf S2** merged (#12, closes #11): `computeLayoutIndexed` / `windowForIndexed` in `layout.ts` (array originals untouched = oracle); `anchor.pbt.test.ts` equivalence property drives `ix` through structural ops in lockstep + probes edge branches.
-- **Workflow:** adopted issue-first + PR `Closes #N`; deleted 8 stale merged branches; remote `feat/*` now clean. `delete-branch-on-merge` stays OFF (user choice) → branches pruned manually post-merge.
+- **Perf S1–S4 all merged** — the full compute-axis fix from `docs/plans/perf.md`:
+  - S1 (#9): `src/layout/orderIndex.ts` Fenwick `OrderIndex`.
+  - S2 (#12, closes #11): `computeLayoutIndexed`/`windowForIndexed` (array originals = frozen oracle).
+  - S3 (#14, closes #13): `resolveBlockIndex` verified optional `at?` hint in `model.ts` mutators + `synthetic.ts`.
+  - **S4 (#16, closes #15): `src/editor/docModel.ts` incremental Yjs-delta consumer replaces Editor's per-keystroke O(n) rebuild.** Keystroke now O(log n)+O(1). Two indices: `ix` (effective=measured??estimate) for layout, `ixEst` (estimate-only) for the estimate-stable render window. `Editor.tsx` reads layout via the indexed twins; `setMeasured` on DOM measure; doc-swap subscription guard; dev-only `devDriftCheck`.
+- **PBT Q1 (#8) + Q2 (#10)** merged earlier this session (anchoring properties; N-replica convergence + anchor-under-concurrency).
+- **Workflow hardened:** issue-first + PR `Closes #N`; branches pruned manually post-merge (auto-delete off, and GitHub auto-close isn't firing here → close issues manually). 8 stale branches cleaned; remote `feat/*` empty.
 
 ## 2. Decisions made and why
-- **Naive layout/model functions are the frozen oracle** — every perf fix ships as a NEW fast path proven byte-equal to the untouched naive function by a fast-check property. No existing signature changes until Stage 4 wiring.
-- **Q2 anchor property injects a real merge** — the earlier global `protectedId` made the anchor un-attackable (vacuous); replica-0 now genuinely merges it away so the redirect branch is exercised under concurrency.
-- **Issue-first, manual branch prune** — `Closes #N` closes the issue, not the branch; auto-delete setting left off, so each stage deletes its own branch after merge.
+- **Frozen-oracle method** — every perf fix is a NEW fast path proven byte-equal to the untouched naive function by a fast-check property; runtime path only changed at S4 wiring, which composes (incremental==rebuild) ∘ (indexed==array) ⇒ render output unchanged.
+- **S4 two-index split** — window must stay estimate-stable (not shift as DOM measurements arrive), so `ixEst` is estimate-only and `setMeasured` touches only `ix`. Preserves pre-S4 windowing exactly.
+- **fable is the adjudicator gate now** (user directive) — ran passes until approval. Fable's 1st-pass FAIL on S4 caught the drift oracle being vacuous on `ixEst` (uniform block heights → trivial prefix-sum equality); fixed with height variance + direct `order()` equality, re-verified teeth, 2nd-pass PASS.
 
 ## 3. What was tested and how
-- `typecheck` clean · `vitest` **79/79** · full suite green. Q2 gate: inspector (6 findings, 2 blocking) → rewrite → adjudicator PASS (5 sabotage-then-revert teeth checks). Perf S2 gate: inspector (coverage gaps) → strengthened property → adjudicator PASS (5 sabotages all RED+reverted). Both auto-merged on green CI (typecheck/test/build + playwright).
+- `tsc` clean · `vitest` **84/84** (16 files) · `vite build` clean · `playwright` **8/8** incl. P0 anti-jump (`milestone.spec.ts`). Each stage adjudicator-gated by sabotage-then-revert teeth checks; S4 by fable across two passes.
 
 ## 4. Files needing attention
-- `docs/plans/perf.md` — Stages 3–6 queued; S3 is the next step.
-- Q1 debt (#12-task): harden windowFor/P2 teeth. S1 adjudicator debt (3 items) still unlogged.
-- PS1/PS2 (PersonalServer C# side) still queued — cross-app receiver + `get_scroll_verdict`. Repos renamed: local `PersonalServer_ Recall_Seed`, remote `PersonalServer Recall-Seed`. A .NET context switch.
-- Prior debt: registry `localStorage` unbounded (→P3); `playwright.config` `retries:2` masks flake.
+- `docs/plans/perf.md` — Stages 5 (heightsRef band eviction) and 6 (gc:false audit) remain; both memory-axis, lower urgency than the compute win now landed.
+- S4 debt (fable, non-blocking): settle-cap `passes>=4` calls `setMeasured` without re-render (pre-S4 staleness class, not a regression); optional generator op applying a remote-batched update (text-edit + delete same block in one `Y.applyUpdate`) to make the array-first event ordering + delete guard empirically load-bearing.
+- Q1 debt (harden windowFor/P2 teeth, #12-task); S1 adjudicator debt (3 items) still unlogged.
+- PS1/PS2 (PersonalServer C# side) queued — cross-app receiver + `get_scroll_verdict`. Repos: local `PersonalServer_ Recall_Seed`, remote `PersonalServer Recall-Seed`. A .NET switch.
 
 ## 5. Next step
-Start **perf Stage 3** (`perf(doc): fast block locate in mutators via optional index`): give `setBlockText`/`insertBlockAfter`/`splitBlock`/`mergeIntoPrevious` in `src/doc/model.ts` an optional `at?: number` (default = current `indexOfBlock` scan), thread it through `src/dev/synthetic.ts`, and add `src/test/pbt/model.pbt.test.ts` proving the with-index and without-index docs are structurally identical (`blockViews` equal) over random op sequences. Open issue first, then adjudicator-gated PR with `Closes #<n>`.
+Perf **Stage 5** (`perf(editor): evict heightsRef outside a band`): `heightsRef` never evicts, so it grows with every block ever rendered. Add band eviction after settle — drop measured entries whose `ix.indexOf(id)` is outside `[window.start - MARGIN, window.end + MARGIN]` (MARGIN ~500), NEVER evicting the window+overscan or the anchor. Watch the jump-risk: evicting an ABOVE-anchor block reverts its height (measured→estimate), changing spacers — must trigger a hold-correction re-pin so the anchor doesn't move, and needs a NEW scroll-away-and-return e2e (current `milestone.spec.ts` doesn't cover return). Issue-first, fable-gated PR with `Closes #N`.
