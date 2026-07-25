@@ -1,5 +1,5 @@
 import * as Y from 'yjs'
-import { blocks, blockId, makeBlock, indexOfBlock, mergeIntoPrevious } from '../doc/model'
+import { blocks, blockId, makeBlock, resolveBlockIndex, mergeIntoPrevious } from '../doc/model'
 
 const WORDS = 'lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud'.split(' ')
 
@@ -13,8 +13,8 @@ function pseudoText(seed: number, words: number): string {
   return out.join(' ')
 }
 
-export function insertAbove(doc: Y.Doc, beforeBlockId: string, count: number, seed = 1): string[] {
-  const at = Math.max(0, indexOfBlock(doc, beforeBlockId))
+export function insertAbove(doc: Y.Doc, beforeBlockId: string, count: number, seed = 1, hint?: number): string[] {
+  const at = Math.max(0, resolveBlockIndex(doc, beforeBlockId, hint))
   const created: Y.Map<unknown>[] = []
   for (let i = 0; i < count; i++) {
     const words = 3 + ((seed + i * 7) % 40)
@@ -26,8 +26,8 @@ export function insertAbove(doc: Y.Doc, beforeBlockId: string, count: number, se
   return created.map(blockId)
 }
 
-export function deleteAbove(doc: Y.Doc, beforeBlockId: string, count: number): void {
-  const at = Math.max(0, indexOfBlock(doc, beforeBlockId))
+export function deleteAbove(doc: Y.Doc, beforeBlockId: string, count: number, hint?: number): void {
+  const at = Math.max(0, resolveBlockIndex(doc, beforeBlockId, hint))
   const n = Math.min(count, at)
   if (n <= 0) return
   doc.transact(() => {

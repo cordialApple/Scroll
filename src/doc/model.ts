@@ -64,6 +64,17 @@ export function indexOfBlock(doc: Y.Doc, id: string): number {
   return -1
 }
 
+// Verified fast-locate: an `at` hint from a caller-held OrderIndex is trusted only when it still
+// points at `id` (O(1) check), else it falls back to the O(n) scan. So the resolved index is always
+// identical to indexOfBlock regardless of hint staleness — the hint is a pure speed shortcut.
+export function resolveBlockIndex(doc: Y.Doc, id: string, at?: number): number {
+  if (at !== undefined) {
+    const arr = blocks(doc)
+    if (at >= 0 && at < arr.length && blockId(arr.get(at)) === id) return at
+  }
+  return indexOfBlock(doc, id)
+}
+
 export function blockViews(doc: Y.Doc): BlockView[] {
   return blocks(doc).map((m) => ({
     id: blockId(m),
@@ -72,8 +83,8 @@ export function blockViews(doc: Y.Doc): BlockView[] {
   }))
 }
 
-export function setBlockText(doc: Y.Doc, id: string, text: string): void {
-  const idx = indexOfBlock(doc, id)
+export function setBlockText(doc: Y.Doc, id: string, text: string, at?: number): void {
+  const idx = resolveBlockIndex(doc, id, at)
   if (idx < 0) return
   const t = blockText(blocks(doc).get(idx))
   doc.transact(() => {
@@ -87,8 +98,9 @@ export function insertBlockAfter(
   id: string,
   type: BlockType,
   text: string,
+  at?: number,
 ): string {
-  const idx = indexOfBlock(doc, id)
+  const idx = resolveBlockIndex(doc, id, at)
   const block = makeBlock(type, text)
   doc.transact(() => {
     blocks(doc).insert(idx < 0 ? blocks(doc).length : idx + 1, [block])
@@ -104,8 +116,8 @@ export function appendBlock(doc: Y.Doc, type: BlockType, text: string): string {
   return blockId(block)
 }
 
-export function splitBlock(doc: Y.Doc, id: string, charOffset: number): string | null {
-  const idx = indexOfBlock(doc, id)
+export function splitBlock(doc: Y.Doc, id: string, charOffset: number, at?: number): string | null {
+  const idx = resolveBlockIndex(doc, id, at)
   if (idx < 0) return null
   const arr = blocks(doc)
   const src = arr.get(idx)
@@ -119,8 +131,8 @@ export function splitBlock(doc: Y.Doc, id: string, charOffset: number): string |
   return blockId(next)
 }
 
-export function mergeIntoPrevious(doc: Y.Doc, id: string): string | null {
-  const idx = indexOfBlock(doc, id)
+export function mergeIntoPrevious(doc: Y.Doc, id: string, at?: number): string | null {
+  const idx = resolveBlockIndex(doc, id, at)
   if (idx <= 0) return null
   const arr = blocks(doc)
   const src = arr.get(idx)
