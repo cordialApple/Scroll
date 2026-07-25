@@ -23,21 +23,20 @@ import {
   type BlockView,
 } from '../doc/model'
 import { resolveEffectiveAnchor } from '../doc/anchor'
-import { estimateHeight } from '../layout/estimate'
 import {
-  computeLayout,
-  windowFor,
+  computeLayoutIndexed,
+  windowForIndexed,
   deriveAnchor,
   type Anchor,
   type HeightModel,
 } from '../layout/layout'
+import { buildDocModel, applyEvents, setMeasured, type DocModel, type HeightSource } from './docModel'
 import { saveCamera } from '../doc/camera'
 import { insertAbove, deleteAbove } from '../dev/synthetic'
 import { Block } from './Block'
 import { setCaretOffset } from './caret'
 
 const OVERSCAN = 1200
-const EMPTY_HEIGHTS: Map<string, number> = new Map()
 
 export interface EditorApi {
   insertAbove(n: number): void
@@ -73,57 +72,59 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   const correctedSeqRef = useRef(0)
   const restorePendingRef = useRef(initialAnchor != null)
 
+  const src: HeightSource = useMemo(
+    () => ({ measuredOf: (id) => heightsRef.current.get(id) }),
+    [],
+  )
+
+  // Incrementally-maintained order/estimates/indices. Built synchronously on first render and on doc
+  // change; kept in sync by the observeDeep delta consumer below. Mutated in place — renders are
+  // triggered by `version`, so downstream memos key on `version`/`heightsVersion`, not `model` identity.
+  const modelRef = useRef<DocModel | null>(null)
+  const modelDocRef = useRef<Y.Doc | null>(null)
+  if (modelRef.current === null || modelDocRef.current !== doc) {
+    modelRef.current = buildDocModel(doc, src)
+    modelDocRef.current = doc
+  }
+  const model = modelRef.current
+
   useEffect(() => {
     const arr = blocks(doc)
-    const cb = () => {
+    const cb = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
+      if (modelDocRef.current !== doc) return
+      applyEvents(modelRef.current!, doc, events, src)
       mutationSeqRef.current++
+      if (import.meta.env.DEV && mutationSeqRef.current % 16 === 0) devDriftCheck(modelRef.current!, doc, src)
       forceRender()
     }
     arr.observeDeep(cb)
     return () => arr.unobserveDeep(cb)
-  }, [doc])
+  }, [doc, src])
 
   const suppressScroll = useCallback(() => {
     suppressUntilRef.current = performance.now() + 250
   }, [])
 
-  const { order, estimates } = useMemo(() => {
-    const arr = blocks(doc)
-    const order: string[] = []
-    const estimates = new Map<string, number>()
-    for (let i = 0; i < arr.length; i++) {
-      const m = arr.get(i)
-      const id = blockId(m)
-      order.push(id)
-      estimates.set(id, estimateHeight({ type: blockType(m), textLength: blockText(m).length }))
-    }
-    return { order, estimates }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, version])
+  const order = model.order
 
   const hm: HeightModel = useMemo(
-    () => ({ measured: heightsRef.current, estimate: (id) => estimates.get(id) ?? 40 }),
-    [estimates, heightsVersion],
-  )
-
-  const estimateHm: HeightModel = useMemo(
-    () => ({ measured: EMPTY_HEIGHTS, estimate: (id) => estimates.get(id) ?? 40 }),
-    [estimates],
+    () => ({ measured: heightsRef.current, estimate: (id) => model.estimates.get(id) ?? 40 }),
+    [model, heightsVersion, version],
   )
 
   const effAnchor: Anchor = useMemo(
     () => resolveEffectiveAnchor(order, redirectSource(doc), anchor),
-    [doc, order, anchor],
+    [doc, order, anchor, version],
   )
 
   const renderWindow = useMemo(
-    () => windowFor(order, estimateHm, effAnchor, viewportH, OVERSCAN),
-    [order, estimateHm, effAnchor, viewportH],
+    () => windowForIndexed(model.ixEst, effAnchor, viewportH, OVERSCAN),
+    [model, effAnchor, viewportH, version],
   )
 
   const layout = useMemo(
-    () => computeLayout(order, hm, renderWindow, effAnchor),
-    [order, hm, renderWindow, effAnchor],
+    () => computeLayoutIndexed(model.ix, renderWindow, effAnchor),
+    [model, renderWindow, effAnchor, version, heightsVersion],
   )
 
   const rendered: BlockView[] = useMemo(() => {
@@ -158,6 +159,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       const prev = heightsRef.current.get(id)
       if (prev === undefined || Math.abs(prev - h) >= 1) {
         heightsRef.current.set(id, h)
+        setMeasured(model, id, src)
         changed = true
       }
     })
@@ -265,7 +267,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       const arr = blocks(doc)
       const idx = indexOfBlock(doc, id)
       const prevLen = idx > 0 ? blockText(arr.get(idx - 1)).length : 0
-      const prevId = mergeIntoPrevious(doc, id)
+      const prevId = mergeIntoPrevious(doc, id, idx)
       if (prevId) pendingFocusRef.current = { blockId: prevId, caret: prevLen }
     },
     [doc],
@@ -274,16 +276,18 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   useImperativeHandle(
     apiRef,
     (): EditorApi => ({
-      insertAbove: (n) => effAnchor.blockId && insertAbove(doc, effAnchor.blockId, n, 3 + n),
-      deleteAbove: (n) => effAnchor.blockId && deleteAbove(doc, effAnchor.blockId, n),
+      insertAbove: (n) =>
+        effAnchor.blockId && insertAbove(doc, effAnchor.blockId, n, 3 + n, model.ix.indexOf(effAnchor.blockId)),
+      deleteAbove: (n) =>
+        effAnchor.blockId && deleteAbove(doc, effAnchor.blockId, n, model.ix.indexOf(effAnchor.blockId)),
       mergeAnchorAway: () => {
         const id = effAnchor.blockId
-        const idx = order.indexOf(id)
-        if (idx > 0) mergeIntoPrevious(doc, id)
+        const idx = model.ix.indexOf(id)
+        if (idx > 0) mergeIntoPrevious(doc, id, idx)
       },
       anchorId: () => effAnchor.blockId,
     }),
-    [doc, effAnchor.blockId, order],
+    [doc, effAnchor.blockId, model],
   )
 
   return (
@@ -300,6 +304,21 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     </div>
   )
 })
+
+function devDriftCheck(model: DocModel, doc: Y.Doc, src: HeightSource): void {
+  const fresh = buildDocModel(doc, src)
+  if (
+    JSON.stringify(model.order) !== JSON.stringify(fresh.order) ||
+    model.ix.totalHeight() !== fresh.ix.totalHeight() ||
+    model.ixEst.totalHeight() !== fresh.ixEst.totalHeight()
+  ) {
+    // eslint-disable-next-line no-console
+    console.error('[scroll] docModel drift vs full rebuild', {
+      incremental: model.order.length,
+      fresh: fresh.order.length,
+    })
+  }
+}
 
 function cssEscape(s: string): string {
   if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(s)
