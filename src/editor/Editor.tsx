@@ -260,7 +260,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     if (next.blockId) commitAnchor(next)
   }, [commitAnchor, model])
 
-  // O(1) at-hint from the live index avoids indexOfBlock's O(n) scan on every keystroke/split/merge;
+  // O(log n) at-hint from the live index avoids indexOfBlock's O(n) scan on every keystroke/split/merge;
   // resolveBlockIndex re-verifies it, so a stale hint is corrected, never trusted blind.
   const hintOf = useCallback((id: string) => modelRef.current?.ix.indexOf(id), [])
   const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text, hintOf(id)), [doc, hintOf])
