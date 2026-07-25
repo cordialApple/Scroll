@@ -1,48 +1,27 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-24 23:10 · branch: main · session: P2 S1+S2 merged; PBT plan v2 (DS spine + AI-gen); starting Q1_
+_Last updated: 2026-07-25 01:45 · branch: main · session: landed Q1/Q2 + perf S1/S2; issue-first workflow adopted; starting perf S3_
 
 ## 1. What changed this session
-- **S1 (contract-6 callback)** merged (`ce45c73`, PR #4): `src/es/notify.ts` fire-and-forget POST of
-  `ResultPayload` to `resultCallbackUrl` on submit; http(s)-guarded, backoff + per-attempt 5s abort,
-  swallow-all; called after the durable local write in `IdeEndpointView.tsx`.
-- **S2 (wire-shape golden vectors)** merged (`508c961`, PR #6): `docs/contracts/result-payload.v1.json`
-  + `src/es/result-payload.golden.json` + `resultPayload.golden.test.ts` (7 tests) pin the payload
-  byte-for-byte (JSON key order, exact key-set, consumer-blindness = `cases` dropped, tle>error
-  precedence, contract-derived bounds). `e2e/callback.spec.ts` asserts exact keys on the real POST.
-- **PBT plan v2** (`docs/plans/pbt-in-ci.md`, 693 lines, fable): distributed-systems value prop is the
-  spine; AI-generated PBT is first-class (authoring-time only, CI replays committed artifacts).
-- `docs/roadmap.md` Q-track rewritten to the DS spine + AI-gen + Q1→Q5 sub-track.
+- **PBT Q1** merged (#8): `src/doc/anchor.ts` (`resolveEffectiveAnchor`) extracted pure; `src/test/pbt/harness.ts` R1 determinism harness (neutralizes Math.random/Date/perf/crypto incl. getRandomValues for Yjs clientID; bans timers); `anchor.pbt.test.ts` 6 in-memory anchoring properties. fast-check 3.23.2 pinned exact.
+- **PBT Q2** merged (#10): `src/test/pbt/distributed/convergence.pbt.test.ts` — N-replica Yjs network-adversary harness. 3 properties: [SEC] blocks+redirects co-converge, [commutativity] all replicas == canonical once-each replay, [anchor-under-concurrency] replica-0 merges the anchor away and every replica resolves the redirect to its predecessor. `j>=2` pins the redirect branch distinct from the top-fallback.
+- **Perf S1** merged (#9): `src/layout/orderIndex.ts` — Fenwick-backed `OrderIndex` (id→index, prefix-height, findByOffset) + equivalence PBT vs `sumHeights`/`deriveAnchor`.
+- **Perf S2** merged (#12, closes #11): `computeLayoutIndexed` / `windowForIndexed` in `layout.ts` (array originals untouched = oracle); `anchor.pbt.test.ts` equivalence property drives `ix` through structural ops in lockstep + probes edge branches.
+- **Workflow:** adopted issue-first + PR `Closes #N`; deleted 8 stale merged branches; remote `feat/*` now clean. `delete-branch-on-merge` stays OFF (user choice) → branches pruned manually post-merge.
 
 ## 2. Decisions made and why
-- **Consumer-minted `resultCallbackUrl` carries correlation; push not poll** — endpoint id is
-  browser-minted, so the consumer bakes its own loopback URL and Scroll pushes the verdict. Payload =
-  `ResultPayload` only (pass/fail/counts); Scroll stays consumer-blind.
-- **Callback SSRF accepted as intended contract-6 design** (S1 adjudicator) — non-sensitive payload,
-  Submit-gated; scheme-guard blocks non-http(s).
-- **Anchoring is a distributed-systems property, tested on shipped modules** (user directive) — PBT
-  centers on convergence + anchor-under-concurrency via the redirect table / anchor resolver / id
-  model, network modelled as a fast-check adversary.
-- **AI never decides pass/fail and CI never calls a model** — AI proposes generators/invariants
-  offline as committed deterministic artifacts; `@exploratory` + adjudicator oracle-soundness review
-  before load-bearing (mirrors the ide-es grading-trust rule).
+- **Naive layout/model functions are the frozen oracle** — every perf fix ships as a NEW fast path proven byte-equal to the untouched naive function by a fast-check property. No existing signature changes until Stage 4 wiring.
+- **Q2 anchor property injects a real merge** — the earlier global `protectedId` made the anchor un-attackable (vacuous); replica-0 now genuinely merges it away so the redirect branch is exercised under concurrency.
+- **Issue-first, manual branch prune** — `Closes #N` closes the issue, not the branch; auto-delete setting left off, so each stage deletes its own branch after merge.
 
 ## 3. What was tested and how
-- `typecheck` clean · `vitest` **62/62** · `playwright` **8/8** · `build` green (re-run after each
-  stage's adjudicator fixes). S1 gate: simplifier → 2 inspectors → adjudicator PASS-WITH-FIXES.
-  S2 gate: inspector (golden fidelity) → adjudicator PASS (blocking wire-assertion gap closed).
+- `typecheck` clean · `vitest` **79/79** · full suite green. Q2 gate: inspector (6 findings, 2 blocking) → rewrite → adjudicator PASS (5 sabotage-then-revert teeth checks). Perf S2 gate: inspector (coverage gaps) → strengthened property → adjudicator PASS (5 sabotages all RED+reverted). Both auto-merged on green CI (typecheck/test/build + playwright).
 
 ## 4. Files needing attention
-- S1 debt (deferred): doc-es allows `resultCallbackUrl` but never fires it (decide inert vs reject);
-  `submit()` has no `catch` around `grade()`; add callback-URL trust boundary to a contract-6
-  promotion checklist.
+- `docs/plans/perf.md` — Stages 3–6 queued; S3 is the next step.
+- Q1 debt (#12-task): harden windowFor/P2 teeth. S1 adjudicator debt (3 items) still unlogged.
+- PS1/PS2 (PersonalServer C# side) still queued — cross-app receiver + `get_scroll_verdict`. Repos renamed: local `PersonalServer_ Recall_Seed`, remote `PersonalServer Recall-Seed`. A .NET context switch.
 - Prior debt: registry `localStorage` unbounded (→P3); `playwright.config` `retries:2` masks flake.
-- **PS1/PS2 (PersonalServer C# side) still queued** — the cross-app receiver + `get_scroll_verdict`
-  tool in `C:\Users\randl\Documents\GitHub\PersonalServer_`. Not started; a context switch to .NET.
 
 ## 5. Next step
-Start **PBT Q1** (per user's DS-PBT steer, in-repo): extract the effective-anchor fallback from
-`Editor.tsx` (~114–120) into a pure `src/doc/anchor.ts`, add `fast-check` (pinned exact) + the R1
-determinism harness, and land the first in-memory anchoring property (generalize the P0 anti-jump
-e2e: generated op sequences insert/delete above/inside/below the camera; oracle = the anchor still
-resolves to the same logical content). Adjudicator-gated PR.
+Start **perf Stage 3** (`perf(doc): fast block locate in mutators via optional index`): give `setBlockText`/`insertBlockAfter`/`splitBlock`/`mergeIntoPrevious` in `src/doc/model.ts` an optional `at?: number` (default = current `indexOfBlock` scan), thread it through `src/dev/synthetic.ts`, and add `src/test/pbt/model.pbt.test.ts` proving the with-index and without-index docs are structurally identical (`blockViews` equal) over random op sequences. Open issue first, then adjudicator-gated PR with `Closes #<n>`.
