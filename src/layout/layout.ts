@@ -100,9 +100,8 @@ export function windowFor(
   return { start, end }
 }
 
-// Indexed twins of computeLayout / windowFor: identical results, but every whole-doc sumHeights walk
-// and order.indexOf becomes an O(log n) OrderIndex prefix-sum / lookup. Not yet wired into Editor; a
-// PBT pins them deep-equal to the array versions for any doc/anchor/window.
+// indexed twins of computeLayout/windowFor: same results but O(log n) via OrderIndex prefix-sum/lookup vs whole-doc
+// walk. not wired into Editor yet; PBT pins deep-equal vs array versions
 export function computeLayoutIndexed(ix: OrderIndex, window: Window, anchor: Anchor): LayoutResult {
   const n = ix.size()
   const start = clamp(window.start, 0, n)

@@ -64,9 +64,8 @@ export function indexOfBlock(doc: Y.Doc, id: string): number {
   return -1
 }
 
-// Verified fast-locate: an `at` hint from a caller-held OrderIndex is trusted only when it still
-// points at `id` (O(1) check), else it falls back to the O(n) scan. So the resolved index is always
-// identical to indexOfBlock regardless of hint staleness — the hint is a pure speed shortcut.
+// at-hint from caller's OrderIndex trusted only if still points at id (O(1) check), else falls back to O(n) scan —
+// result always == indexOfBlock regardless of staleness, hint is pure speed shortcut
 export function resolveBlockIndex(doc: Y.Doc, id: string, at?: number): number {
   if (at !== undefined) {
     const arr = blocks(doc)

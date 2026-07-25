@@ -29,7 +29,7 @@ describe('PBT: heightsRef band eviction (perf S5)', () => {
           const window = { start, end }
           const anchorId = order[anchorSel % n]
 
-          // Measured set: a subset of real ids plus some stale ids no longer in the doc.
+          // mix of real + stale (not-in-doc) ids
           const heights = new Map<string, number>()
           for (const s of measuredSel) heights.set(order[s % n], trueHeight(order[s % n]))
           heights.set(anchorId, trueHeight(anchorId))
@@ -38,8 +38,7 @@ describe('PBT: heightsRef band eviction (perf S5)', () => {
           const before = new Set(heights.keys())
           const ixOrderBefore = JSON.stringify(ix.order())
           const ixTotalBefore = ix.totalHeight()
-          // Camera-derivation probes: findByOffset is the spacer geometry the anchor is derived from
-          // on a fling. It must be eviction-independent — the property that guards the onScroll path.
+          // camera probes: findByOffset = spacer geom anchor derived from on fling — must be eviction-independent (guards onScroll path)
           const pxProbes = [0, Math.floor(ixTotalBefore / 2), ixTotalBefore - 1, ixTotalBefore + 200]
           const camBefore = pxProbes.map((px) => JSON.stringify(ix.findByOffset(px)))
 
@@ -47,23 +46,20 @@ describe('PBT: heightsRef band eviction (perf S5)', () => {
           const hi = end + margin
           evictHeightsOutsideBand(heights, ix, window, anchorId, margin)
 
-          // ix must be untouched — this is the jump-freedom guarantee.
+          // ix untouched = jump-freedom guarantee
           if (JSON.stringify(ix.order()) !== ixOrderBefore) return false
           if (ix.totalHeight() !== ixTotalBefore) return false
           for (let i = 0; i < pxProbes.length; i++) {
             if (JSON.stringify(ix.findByOffset(pxProbes[i])) !== camBefore[i]) return false
           }
 
-          // Anchor is never evicted.
           if (!heights.has(anchorId)) return false
-          // Absent-from-doc entry is always evicted.
           if (heights.has('__gone__')) return false
 
           for (const id of before) {
             if (id === anchorId || id === '__gone__') continue
             const idx = ix.indexOf(id)
             const inBand = idx >= lo && idx < hi
-            // In-band survivors kept; out-of-band evicted. No spurious add/keep.
             if (inBand && !heights.has(id)) return false
             if (!inBand && heights.has(id)) return false
           }

@@ -12,8 +12,7 @@ export interface OrderIndex {
   order(): string[]
 }
 
-// Fenwick (binary indexed tree) over per-position heights. Point update + prefix are O(log n);
-// findLE (largest prefix count whose sum ≤ target) is the O(log n) core of findByOffset.
+// Fenwick (BIT) over per-position heights: point update + prefix O(log n); findLE (largest prefix ≤ target) = O(log n) core of findByOffset
 class Fenwick {
   private t: number[]
   constructor(private n: number) {
@@ -47,9 +46,8 @@ class Fenwick {
   }
 }
 
-// First-cut backing: array of ids + parallel heights + a Fenwick. setHeight is O(log n); structural
-// insert/remove rebuild the Fenwick in O(n) (text edits dominate keystrokes, structure rarely
-// changes). The interface is stable, so this can become a treap later without touching consumers.
+// first-cut backing: array of ids+heights+Fenwick. setHeight O(log n); structural insert/remove rebuild Fenwick O(n)
+// (text edits >> structural changes). interface stable — could become treap later w/o touching consumers
 class ArrayOrderIndex implements OrderIndex {
   private ids: string[] = []
   private heights: number[] = []

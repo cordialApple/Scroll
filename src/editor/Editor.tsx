@@ -81,9 +81,8 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     [],
   )
 
-  // Incrementally-maintained order/estimates/indices. Built synchronously on first render and on doc
-  // change; kept in sync by the observeDeep delta consumer below. Mutated in place — renders are
-  // triggered by `version`, so downstream memos key on `version`/`heightsVersion`, not `model` identity.
+  // order/estimates/indices, built sync on first render + doc change, synced via observeDeep below.
+  // mutated in place — memos key on version/heightsVersion, not model identity
   const modelRef = useRef<DocModel | null>(null)
   const modelDocRef = useRef<Y.Doc | null>(null)
   if (modelRef.current === null || modelDocRef.current !== doc) {
@@ -219,8 +218,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       settleRef.current.passes++
       bumpHeights()
     } else if (!changed && heightsRef.current.size > evictTrigger()) {
-      // Settled: reclaim the measured-height cache outside the band. ix is untouched, so this is
-      // invisible (no spacer/camera change) and needs no re-render.
+      // settled: reclaim measured-height cache outside band. ix untouched — invisible (no spacer/camera change), no re-render needed
       evictHeightsOutsideBand(heightsRef.current, model.ix, renderWindow, effAnchor.blockId, evictMargin())
     }
   })
@@ -255,8 +253,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     if (domId) {
       next = { blockId: domId, offset: Math.max(0, domOff) }
     } else {
-      // Fling into spacer territory: derive from ix (same geometry as the spacers, eviction-
-      // independent) — NOT heightsRef, which diverges from ix once band eviction runs.
+      // fling into spacer: derive from ix (matches spacer geometry, eviction-independent) not heightsRef (diverges from ix once band eviction runs)
       const r = model.ix.findByOffset(scroller.scrollTop)
       next = { blockId: r.id, offset: r.offset }
     }
@@ -329,9 +326,8 @@ function evictMargin(): number {
 
 function devDriftCheck(model: DocModel, doc: Y.Doc, src: HeightSource): void {
   const fresh = buildDocModel(doc, src)
-  // ixEst + order are eviction-independent (estimate-only); ix.totalHeight is NOT compared because
-  // band eviction intentionally leaves ix holding measured heights that a fresh (post-evict) rebuild
-  // would derive as estimates — that divergence is by design, not drift.
+  // ixEst+order eviction-independent (estimate-only); ix.totalHeight NOT compared — band eviction leaves ix holding
+  // measured heights a fresh rebuild would derive as estimates, divergence by design not drift
   if (
     JSON.stringify(model.order) !== JSON.stringify(fresh.order) ||
     model.ixEst.totalHeight() !== fresh.ixEst.totalHeight()

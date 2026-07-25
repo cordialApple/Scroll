@@ -3,10 +3,8 @@ import { blocks, blockId, blockType, blockText } from '../doc/model'
 import { estimateHeight } from '../layout/estimate'
 import { buildOrderIndex, type OrderIndex } from '../layout/orderIndex'
 
-// Incrementally-maintained mirror of the doc's block order + per-block estimate, plus two order
-// indices: `ix` holds effective heights (measured ?? estimate) for computeLayoutIndexed; `ixEst`
-// holds estimate-only heights for windowForIndexed, so the render window stays estimate-stable and
-// does not shift as DOM measurements arrive (preserving the pre-Stage-4 windowing behavior).
+// ix=effective heights (measured??estimate) for computeLayoutIndexed; ixEst=estimate-only for windowForIndexed so
+// window stays estimate-stable, doesn't shift as DOM measurements arrive (preserves pre-Stage-4 behavior)
 export interface DocModel {
   order: string[]
   estimates: Map<string, number>
@@ -41,8 +39,7 @@ export function buildDocModel(doc: Y.Doc, src: HeightSource): DocModel {
   return { order, estimates, ix, ixEst }
 }
 
-// Apply one observeDeep batch incrementally. Structural (array) events are processed before text
-// events so a text edit on a block deleted in the same transaction is correctly skipped.
+// structural (array) events processed before text events — so text edit on block deleted same txn is skipped correctly
 export function applyEvents(
   model: DocModel,
   doc: Y.Doc,
@@ -93,8 +90,7 @@ function applyTextChange(model: DocModel, ev: Y.YEvent<Y.AbstractType<unknown>>,
   model.ixEst.setHeight(id, est)
 }
 
-// Called by the owner when a block's measured height changes (DOM measurement), re-syncing only the
-// effective index — estimates and ixEst are untouched, keeping the window estimate-stable.
+// re-syncs effective index only on DOM measurement; estimates/ixEst untouched, keeps window estimate-stable
 export function setMeasured(model: DocModel, id: string, src: HeightSource): void {
   if (model.ix.indexOf(id) < 0) return
   model.ix.setHeight(id, effective(id, model.estimates.get(id) ?? 40, src))
@@ -105,12 +101,9 @@ export interface Band {
   end: number
 }
 
-// Bound the measured-height cache to O(band): drop entries for blocks outside
-// [window.start - margin, window.end + margin] (or no longer in the doc), never the anchor. `ix` is
-// deliberately NOT touched — the evicted block keeps its last effective height, so spacers are
-// unchanged and the camera cannot jump; on re-entry the block re-measures, and an off-screen edit
-// naturally reverts it to the estimate via applyTextChange (that path is already anti-jump-corrected).
-// Returns the number of entries evicted.
+// bounds measured-height cache to O(band): drops entries outside [start-margin, end+margin] or gone from doc, never
+// anchor. ix deliberately untouched — evicted block keeps last effective height so spacers stay put, camera can't
+// jump; re-entry re-measures, off-screen edit reverts via applyTextChange (already anti-jump-safe). returns evicted count
 export function evictHeightsOutsideBand(
   heights: Map<string, number>,
   ix: OrderIndex,

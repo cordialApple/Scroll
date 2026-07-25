@@ -49,9 +49,8 @@ describe('PBT: fast block locate is hint-independent (perf S3)', () => {
     )
   })
 
-  // Two docs seeded identically evolve under the SAME ops; A resolves targets via an `at` hint (the
-  // known index, or a deliberately corrupted one), B via the plain scan. If the hint ever changed
-  // WHICH block a mutator touched, the type/text structure or the redirect count would diverge.
+  // two docs, same ops: A resolves via at-hint (correct or corrupted), B via plain scan — if hint ever changed which
+  // block got touched, structure/redirect count would diverge
   it('mutators with a hint (even a corrupted one) match mutators without, structurally', () => {
     pbtAssert(
       fc.property(fc.integer({ min: 1, max: 12 }), fc.array(mopArb, { maxLength: 40 }), (base, ops) => {

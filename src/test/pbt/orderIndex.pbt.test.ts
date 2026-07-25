@@ -46,7 +46,7 @@ describe('PBT: OrderIndex is behavior-identical to the naive layout functions', 
               hmap.set(id, m.h)
               ix.setHeight(id, m.h)
             }
-            // per-mutation invariant (plan spec): the index's order tracks the naive array exactly
+            // per-mutation invariant (plan spec): index order tracks naive array exactly
             if (JSON.stringify(ix.order()) !== JSON.stringify(order)) return false
           }
 
@@ -59,7 +59,7 @@ describe('PBT: OrderIndex is behavior-identical to the naive layout functions', 
             if (ix.indexOf(id) !== order.indexOf(id)) return false
             if (ix.heightBefore(id) !== sumHeights(order, hm, 0, order.indexOf(id))) return false
           }
-          // random px plus every exact prefix-sum boundary and ±1 (where a >/>= off-by-one surfaces)
+          // random px + every prefix-sum boundary ±1 (where >/>= off-by-one surfaces)
           const boundaries: number[] = []
           for (let k = 0; k <= order.length; k++) {
             const p = sumHeights(order, hm, 0, k)

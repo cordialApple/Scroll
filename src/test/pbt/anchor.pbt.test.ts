@@ -40,14 +40,12 @@ function measuredAll(order: string[]): HeightModel {
   return { measured, estimate: () => 40 }
 }
 
-// The real anti-jump condition: heights above the camera are UNKNOWN (a deliberately wrong
-// estimate); only the anchor is measured. Re-deriving from the anchor must still pin the camera.
+// anti-jump: heights above camera UNKNOWN (bad estimate) — only anchor measured; re-derive from anchor must still pin camera
 function measuredAnchorOnly(anchorId: string): HeightModel {
   return { measured: new Map([[anchorId, trueHeight(anchorId)]]), estimate: () => 30 }
 }
 
-// Anchor-only measured, but the above/below estimate is TEXT-LENGTH based (read live from the doc), so
-// an editOther op actually moves a block's height instead of being a layout no-op.
+// text-length estimate (live from doc) — editOther actually moves height, not a no-op
 function textLenAnchorOnly(doc: Y.Doc, anchorId: string): HeightModel {
   return {
     measured: new Map([[anchorId, trueHeight(anchorId)]]),
@@ -71,7 +69,7 @@ type Op =
   | { k: 'deleteBelow'; n: number }
   | { k: 'editOther'; rel: number; text: string }
 
-// Every op is anchor-relative and never touches the anchor block itself.
+// ops anchor-relative, never touch anchor block itself
 function applyOp(doc: Y.Doc, anchorId: string, op: Op): void {
   const idx = indexOfBlock(doc, anchorId)
   if (idx < 0) return
@@ -179,11 +177,8 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
     )
   })
 
-  // Cross-order dimension: the existing anti-jump test round-trips scrollTop on ONE order. Here we feed
-  // a scrollTop computed on the PRE-mutation order into deriveAnchor on the POST-mutation order — the
-  // physical scroll position the browser still holds the instant a remote mutation lands. The derived
-  // camera must stay well-formed: in-doc, never a negative offset (the naive-derive bug), and a fixed
-  // point of compute∘derive on its own order. Text-length heights make editOther load-bearing.
+  // cross-order: apply PRE-mutation scrollTop to POST-mutation deriveAnchor (real remote-edit case) — camera must stay
+  // in-doc, offset>=0 (naive-derive bug), fixed pt of compute∘derive; editOther needs text-len heights
   it('a scrollTop persisted across a mutation derives a well-formed, non-negative, idempotent camera', () => {
     pbtAssert(
       fc.property(sizeArb, fc.nat(), opsArb, fc.nat(), (base, anchorSel, ops, offSel) => {
@@ -228,9 +223,8 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
     )
   })
 
-  // The indexed twins must equal the array originals not just against a freshly-built index but
-  // against one driven through insertAfter/remove/setHeight (the perf-motivated path), AND across the
-  // edge branches: missing anchor id, out-of-range/negative window bounds, negative offset, n=0/1.
+  // indexed must match array not just fresh-built index but one driven via insertAfter/remove/setHeight (perf path),
+  // incl edge cases: missing anchor, oob/neg window, neg offset, n=0/1
   it('indexed layout twins equal array layout across structural mutations + edge probes (perf S2)', () => {
     pbtAssert(
       fc.property(sizeArb, fc.array(structOpArb, { maxLength: 30 }), fc.array(probeArb, { minLength: 1, maxLength: 6 }), (base, ops, probes) => {
@@ -296,10 +290,8 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
         if (!(win.start >= 0 && win.start <= anchorIdx && anchorIdx < win.end && win.end <= order.length))
           return false
 
-        // Tight pixel-band teeth: the fat overscan must not hide an off-by-one on either bound. The
-        // band above the anchor is viewportH+overscan, below is 2*viewportH+overscan. For each side
-        // assert BOTH coverage (the window reaches the band, or the doc edge) and minimality (one block
-        // narrower would fall short of the band) — minimality is what a bracket-only assert misses.
+        // tight bounds: overscan must not hide off-by-one. above band=viewportH+overscan, below=2*viewportH+overscan.
+        // assert coverage AND minimality (one block narrower falls short) — bracket-only assert misses minimality
         const aboveBand = viewportH + overscan
         const belowBand = viewportH * 2 + overscan
         const aboveSum = sumHeights(order, hm, win.start, anchorIdx)

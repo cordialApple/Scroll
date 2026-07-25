@@ -74,9 +74,7 @@ export function IdeEndpointView({ doc, id, schema }: { doc: Y.Doc; id: string; s
       setVerdict(v)
       setAttempts(readAttempts(doc))
     } catch (e) {
-      // F-05: grade() rejecting is an infra failure (worker crash), distinct from a graded 'error'
-      // verdict. Surface it instead of dying as an unhandled rejection that leaves the user staring
-      // at an unchanged screen with no idea the submit never ran.
+      // F-05: grade() reject = infra crash, not a graded verdict — surface it, don't die as silent unhandled rejection.
       if (mounted.current) setSubmitError(e instanceof Error ? e.message : String(e))
     } finally {
       if (mounted.current) setBusy(false)

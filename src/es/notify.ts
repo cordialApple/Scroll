@@ -21,7 +21,7 @@ export async function notifyResult(schema: EndpointSchema, payload: ResultPayloa
       })
       if (res.ok) return
     } catch {
-      // fire-and-forget: a consumer being unreachable must never surface to the user
+      // fire-and-forget: unreachable consumer must never surface to user
     }
     if (i < ATTEMPTS - 1) await delay(BACKOFF_BASE_MS * 2 ** i)
   }
