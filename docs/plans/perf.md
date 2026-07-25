@@ -239,6 +239,37 @@ edit+delete sequences still converge and anchors still resolve after GC. Revisit
 lands on `RelativePosition` (then B or C). This stage produces the decision + the audit; the code
 change is a follow-up stage once the audit confirms safety.
 
+#### Decision (2026-07-25): keep `gc: false` — Option A rejected
+
+**Call:** `gc: false` stays (`src/doc/model.ts` line 17). The audit ran and confirmed the code is
+tombstone-clean — the only hit for `RelativePosition|snapshot|tombstone|gc` in `src/` is the flag
+itself; anchors are app-level ids resolved via `redirects`, not `Y.RelativePosition`. Option A is
+therefore *safe today* and still wrong:
+
+1. **The ceiling and the constraint arrive together.** Tombstone growth only bites on multi-year
+   docs; those require persistence; persistence arrives with the multi-user/agent architecture
+   ([distributed-systems.md](../architecture/distributed-systems.md)) where `gc: false` is
+   load-bearing — snapshots/version-restore require it, GC + offline peers is data-loss failure mode
+   #4, agent stale-position writes (#8) need `Y.RelativePosition`, and all peers of a room must share
+   one GC policy. There is no future window where GC is both needed and safe.
+2. **The flip is one-way.** GC policy is decided per-document at creation and never flipped for an
+   existing history ([storage-and-persistence.md](../architecture/storage-and-persistence.md), GC
+   rule 2). Docs created under `gc: true` in the interim could never safely serve version history.
+3. **Product commitment:** the distributed-systems posture is embedded, not optional.
+
+**Supersedes** this stage's earlier "Option A viable now" recommendation, which was scoped to the
+single-client in-memory snapshot and did not weigh the DS invariants. The lifetime-memory answer is
+the **epoch reset protocol**; Option B in the table above is its degenerate single-peer form (idle
+`encodeStateAsUpdate` → fresh doc; app-level block ids carried verbatim, so anchors survive by
+construction) and is the approved follow-up.
+
+**Revisit triggers:**
+
+| Trigger | Action |
+|---|---|
+| Serialized doc (`Y.encodeStateAsUpdate` bytes) crosses ~50 MB, or persistence lands (DO authority cap ~128 MB makes it exact) | Build single-peer epoch reset (Option B) |
+| Owner explicitly drops version history + offline peers + agent positioning | Only then reconsider `gc: true` |
+
 ## Risk summary
 
 - **Stages 1–3 are low-risk:** pure additions and optional params, each fronted by an equality
