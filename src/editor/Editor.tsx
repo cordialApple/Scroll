@@ -15,7 +15,7 @@ import {
   blockId,
   blockType,
   blockText,
-  indexOfBlock,
+  resolveBlockIndex,
   redirectSource,
   setBlockText,
   splitBlock,
@@ -260,23 +260,25 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     if (next.blockId) commitAnchor(next)
   }, [commitAnchor, model])
 
-  const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text), [doc])
+  // O(1) at-hint from the live index avoids indexOfBlock's O(n) scan on every keystroke/split/merge;
+  // resolveBlockIndex re-verifies it, so a stale hint is corrected, never trusted blind.
+  const hintOf = useCallback((id: string) => modelRef.current?.ix.indexOf(id), [])
+  const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text, hintOf(id)), [doc, hintOf])
   const onSplit = useCallback(
     (id: string, caret: number) => {
-      const next = splitBlock(doc, id, caret)
+      const next = splitBlock(doc, id, caret, hintOf(id))
       if (next) pendingFocusRef.current = { blockId: next, caret: 0 }
     },
-    [doc],
+    [doc, hintOf],
   )
   const onMerge = useCallback(
     (id: string) => {
-      const arr = blocks(doc)
-      const idx = indexOfBlock(doc, id)
-      const prevLen = idx > 0 ? blockText(arr.get(idx - 1)).length : 0
+      const idx = resolveBlockIndex(doc, id, hintOf(id))
+      const prevLen = idx > 0 ? blockText(blocks(doc).get(idx - 1)).length : 0
       const prevId = mergeIntoPrevious(doc, id, idx)
       if (prevId) pendingFocusRef.current = { blockId: prevId, caret: prevLen }
     },
-    [doc],
+    [doc, hintOf],
   )
 
   useImperativeHandle(
