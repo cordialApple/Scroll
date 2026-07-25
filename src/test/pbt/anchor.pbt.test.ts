@@ -17,12 +17,15 @@ import {
 import { resolveEffectiveAnchor } from '../../doc/anchor'
 import {
   computeLayout,
+  computeLayoutIndexed,
   deriveAnchor,
   windowFor,
+  windowForIndexed,
   sumHeights,
   type Anchor,
   type HeightModel,
 } from '../../layout/layout'
+import { buildOrderIndex } from '../../layout/orderIndex'
 import { pbtAssert, withDeterminism } from './harness'
 
 function trueHeight(id: string): number {
@@ -103,6 +106,21 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
 const opsArb = fc.array(opArb, { minLength: 1, maxLength: 30 })
 const sizeArb = fc.integer({ min: 2, max: 40 })
 
+const structOpArb = fc.oneof(
+  fc.record({ k: fc.constant('ins' as const), sel: fc.nat(), hv: fc.nat() }),
+  fc.record({ k: fc.constant('rem' as const), sel: fc.nat() }),
+  fc.record({ k: fc.constant('set' as const), sel: fc.nat(), hv: fc.nat() }),
+)
+const probeArb = fc.record({
+  missing: fc.boolean(),
+  aSel: fc.nat(),
+  negOff: fc.boolean(),
+  offMag: fc.nat(),
+  wsSel: fc.nat(),
+  weSel: fc.nat(),
+  vp: fc.nat(),
+})
+
 describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memory)', () => {
   it('anchor identity + content survive arbitrary non-anchor mutations', () => {
     pbtAssert(
@@ -163,6 +181,59 @@ describe('PBT: relative-anchoring invariants (generalized P0 anti-jump, in-memor
         const order1 = blockOrder(doc)
         const eff = resolveEffectiveAnchor(order1, redirectSource(doc), { blockId: anchorId, offset: 5 })
         return eff.blockId === predId && order1.includes(eff.blockId) && eff.offset === 0
+      }),
+    )
+  })
+
+  // The indexed twins must equal the array originals not just against a freshly-built index but
+  // against one driven through insertAfter/remove/setHeight (the perf-motivated path), AND across the
+  // edge branches: missing anchor id, out-of-range/negative window bounds, negative offset, n=0/1.
+  it('indexed layout twins equal array layout across structural mutations + edge probes (perf S2)', () => {
+    pbtAssert(
+      fc.property(sizeArb, fc.array(structOpArb, { maxLength: 30 }), fc.array(probeArb, { minLength: 1, maxLength: 6 }), (base, ops, probes) => {
+        const order: string[] = Array.from({ length: base }, (_, i) => `b${i}`)
+        const h = new Map<string, number>(order.map((id) => [id, trueHeight(id)]))
+        const ix = buildOrderIndex(order, (id) => h.get(id) ?? 40)
+        let ctr = 0
+
+        for (const op of ops) {
+          if (op.k === 'ins') {
+            const at = order.length === 0 ? -1 : op.sel % order.length
+            const id = `n${ctr++}`
+            const height = 50 + (op.hv % 71)
+            order.splice(at + 1, 0, id)
+            h.set(id, height)
+            ix.insertAfter(at < 0 ? null : order[at], id, height)
+          } else if (order.length > 0 && op.k === 'rem') {
+            const id = order[op.sel % order.length]
+            order.splice(order.indexOf(id), 1)
+            h.delete(id)
+            ix.remove(id)
+          } else if (op.k === 'set' && order.length > 0) {
+            const id = order[op.sel % order.length]
+            const height = 50 + (op.hv % 71)
+            h.set(id, height)
+            ix.setHeight(id, height)
+          }
+        }
+
+        const hm: HeightModel = { measured: h, estimate: () => 40 }
+        const n = order.length
+
+        for (const p of probes) {
+          const anchorId = p.missing || n === 0 ? '__absent__' : order[p.aSel % n]
+          const anchor: Anchor = { blockId: anchorId, offset: p.negOff ? -(p.offMag % 50) : p.offMag % 50 }
+          const window = { start: (p.wsSel % (n + 3)) - 1, end: (p.weSel % (n + 3)) - 1 }
+
+          if (JSON.stringify(computeLayout(order, hm, window, anchor)) !== JSON.stringify(computeLayoutIndexed(ix, window, anchor)))
+            return false
+
+          const vp = 200 + (p.vp % 1400)
+          const w1 = windowFor(order, hm, anchor, vp, 1200)
+          const w2 = windowForIndexed(ix, anchor, vp, 1200)
+          if (w1.start !== w2.start || w1.end !== w2.end) return false
+        }
+        return true
       }),
     )
   })
