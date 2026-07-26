@@ -4,8 +4,9 @@ import type { DocumentStore } from './store'
 import { extractSyncUpdate } from './extractSyncUpdate'
 
 // doc_epoch is the reset epoch (P3.6+); still a constant here. owner_epoch is the P3.5 fencing token,
-// acquired per document below and threaded into compact().
-const DOC_EPOCH_V1 = 0
+// acquired per document below and threaded into compact(). Exported so the propose/commit authority
+// (P4.3) appends committed proposals under the same epoch as the sync write path.
+export const DOC_EPOCH_V1 = 0
 
 export function createPersistenceExtension(store: DocumentStore): Extension {
   // appendUpdate assigns a seq durably BEFORE that update's apply() runs (see store.ts); onChange

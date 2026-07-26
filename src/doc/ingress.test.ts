@@ -218,11 +218,12 @@ describe('P3.6 onAuthenticate seam (contract-7 trust root)', () => {
     server = await startScrollServer({
       port,
       databaseUrl: DATABASE_URL,
-      authenticate: (token: string) => {
-        // Stub trust root: identity IS the token, and only the known secret is admitted. Real issuance
-        // (room-scoped tokens, Scroll-asserted roles) is P4 — this only proves the seam gates.
+      authenticate: (token: string, ctx) => {
+        // Stub trust root: only the known secret is admitted. Real issuance (room-scoped tokens,
+        // Scroll-asserted roles) is P4.1 — this only proves the seam gates. The return must be a
+        // conforming `{ peer: PeerIdentity }` now that the seam type enforces it (F-03).
         if (token !== SECRET) throw new Error('permission-denied: unknown token')
-        return { user: token }
+        return { peer: { sub: token, role: 'human' as const, caps: [], room: ctx.documentName } }
       },
     })
     const url = `ws://127.0.0.1:${port}`
