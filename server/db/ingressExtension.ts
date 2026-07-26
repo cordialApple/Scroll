@@ -72,8 +72,17 @@ export function createIngressExtension(opts: IngressOptions = {}): Extension {
         // tokenless connection carries no peer (single-owner localhost) and is unaffected; a read-only
         // peer that behaves never sends a sync frame, so it observes uninterrupted.
         const peer = peerFromContext(context)
-        if (peer && !peer.caps.includes(CAP_WRITE) && mutatesState(syncUpdate)) {
-          throw refuse('update rejected: peer lacks write capability')
+        if (peer && !peer.caps.includes(CAP_WRITE)) {
+          // Guarded: decodeUpdate is a different read path than the applyUpdate above, so a throw here
+          // must still map to the 4400 refuse-and-resync code — an unguarded throw would surface
+          // codeless and Hocuspocus would close 4403 (refuse WITHOUT resync). See REFUSE_CODE above.
+          let mutates: boolean
+          try {
+            mutates = mutatesState(syncUpdate)
+          } catch {
+            throw refuse('update rejected: undecodable update payload')
+          }
+          if (mutates) throw refuse('update rejected: peer lacks write capability')
         }
       }
     },
