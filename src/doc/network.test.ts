@@ -85,8 +85,10 @@ describe('P3.1 network provider seam', () => {
     const port = await freePort()
     server = await startScrollServer({ port })
     const peer = wsPeer(`ws://127.0.0.1:${port}`)
+    // Not pushed to `handles` — destroyed explicitly below; double-destroying via afterEach's sweep
+    // triggers a stray reconnect that races the server's own teardown (visible now as a benign but
+    // noisy Postgres-pool-closed log once the server actually has extensions to complain from).
     const h = openDoc(`peerClose-${port}`, { room: `room-${port}`, seed: true, websocketProvider: peer })
-    handles.push(h)
     await h.whenSynced
     await waitFor(() => peer.shouldConnect)
 

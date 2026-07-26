@@ -12,18 +12,24 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b --noEmit",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui"
+    "e2e:ui": "playwright test --ui",
+    "db:up": "docker run --rm -d --name scroll-pg-dev -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=scroll -p 5432:5432 postgres:16-alpine",
+    "db:down": "docker rm -f scroll-pg-dev"
   },
   "dependencies": {
     "@hocuspocus/provider": "^2.15.3",
     "@hocuspocus/server": "^2.15.3",
+    "lib0": "^0.2.117",
+    "pg": "^8.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "y-indexeddb": "^9.0.12",
+    "y-protocols": "^1.0.7",
     "yjs": "^13.6.20"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@types/pg": "^8.20.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.18.1",
