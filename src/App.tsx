@@ -57,7 +57,12 @@ export function App() {
 }
 
 function HomeDoc() {
-  const handle = useMemo(() => openDoc(DOC_ID), [])
+  const room = useMemo(
+    () => new URLSearchParams(window.location.search).get('room') ?? DOC_ID,
+    [],
+  )
+  const wsUrl = import.meta.env.VITE_SCROLL_WS_URL as string | undefined
+  const handle = useMemo(() => openDoc(room, { room, wsUrl }), [room, wsUrl])
   const [synced, setSynced] = useState(false)
   const apiRef = useRef<EditorApi>(null)
   const undoRef = useRef<Y.UndoManager | null>(null)
@@ -67,7 +72,7 @@ function HomeDoc() {
     let alive = true
     handle.whenSynced.then(() => {
       if (!alive) return
-      initialAnchor.current = loadCamera(DOC_ID)
+      initialAnchor.current = loadCamera(room)
       undoRef.current = new Y.UndoManager(blocks(handle.doc))
       if (import.meta.env.DEV) {
         ;(window as unknown as { __scroll: unknown }).__scroll = {
@@ -85,7 +90,7 @@ function HomeDoc() {
     })
     return () => {
       alive = false
-      handle.provider.destroy()
+      handle.destroy()
     }
   }, [handle])
 
@@ -111,7 +116,7 @@ function HomeDoc() {
       <Editor
         ref={apiRef}
         doc={handle.doc}
-        docId={DOC_ID}
+        docId={room}
         initialAnchor={initialAnchor.current}
       />
     </div>

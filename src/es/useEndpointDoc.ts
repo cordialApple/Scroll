@@ -27,7 +27,7 @@ export function useEndpointDoc(id: string): OpenEndpoint {
     })
     return () => {
       alive = false
-      handle.provider.destroy()
+      handle.destroy()
     }
   }, [id])
   return state
