@@ -92,6 +92,26 @@ export function setBlockText(doc: Y.Doc, id: string, text: string, at?: number):
   })
 }
 
+export function blockTextString(doc: Y.Doc, id: string, at?: number): string | null {
+  const idx = resolveBlockIndex(doc, id, at)
+  return idx < 0 ? null : blockText(blocks(doc).get(idx)).toString()
+}
+
+export function insertBlockText(
+  doc: Y.Doc,
+  id: string,
+  offset: number,
+  text: string,
+  at?: number,
+): void {
+  if (!text) return
+  const idx = resolveBlockIndex(doc, id, at)
+  if (idx < 0) return
+  const t = blockText(blocks(doc).get(idx))
+  const pos = Math.max(0, Math.min(offset, t.length))
+  doc.transact(() => t.insert(pos, text))
+}
+
 export function insertBlockAfter(
   doc: Y.Doc,
   id: string,

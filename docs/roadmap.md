@@ -97,6 +97,13 @@ Milestone: STARfolio's AI interviewer observes a live Scroll session as a peer.
 ## P5 — App-native voice typing
 
 - Voice typing built into Scroll (not borrowed from a consumer).
+- An engine-independent `Transcriber` interface (Web Speech API first, Whisper-WASM swappable
+  later) feeds a dictation controller that folds transcripts into the block model at the caret;
+  interim text is preview-only (commit-on-final, never written to Yjs).
+
+Milestone: dictation grows content above an anchored camera and the viewport does not move —
+the anchoring promise composed with voice input, same shape as P4.5 composed it with the peer
+path.
 
 ## P6 — Attention-anchored agent editor (native value prop)
 
