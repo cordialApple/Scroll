@@ -21,7 +21,12 @@ export async function createScrollServer(opts: ScrollServerOptions): Promise<Hoc
     quiet: opts.quiet ?? true,
     extensions: [
       createPersistenceExtension(createPostgresStore(pool)),
-      { async onDestroy() { await pool.end() } },
+      // Hocuspocus registers its own process-wide SIGINT/SIGTERM/SIGQUIT handler on every listen()
+      // call and never removes it (even after destroy()) — in a test run that creates many servers,
+      // one real termination signal fires all of them, each re-destroying its own already-destroyed
+      // server. Guard so a second onDestroy for the same pool is a no-op instead of pg-pool's "Called
+      // end on pool more than once" throw.
+      { async onDestroy() { if (!pool.ended) await pool.end() } },
     ],
   })
 }
