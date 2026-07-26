@@ -26,7 +26,11 @@ export interface HeadlessPeerOptions {
 }
 
 export interface HeadlessPeer {
-  doc: Y.Doc
+  // The shared Y.Doc is deliberately NOT exposed as a first-class handle: a peer must never self-apply, and
+  // a public `doc` field is the frictionless hook a consumer would grab to mutate it directly (the F-04
+  // hazard). Reads go through snapshot()/observeText(); writes go through propose(). `provider.document`
+  // still reaches the raw doc, but `provider` is exposed only for auth/lifecycle introspection and is a
+  // deliberate step down from the peer API — dropping `doc` removes the ergonomic path, not every path.
   provider: HocuspocusProvider
   whenReady: Promise<void>
   propose(mutate: (fork: Y.Doc) => void): Promise<ProposalOutcome>
@@ -178,7 +182,6 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
   }
 
   return {
-    doc,
     provider,
     whenReady,
     propose,
