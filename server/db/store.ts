@@ -29,13 +29,19 @@ export interface LoadedDocument {
 
 export interface DocumentStore {
   loadDocument(docId: string): Promise<LoadedDocument>
+  // Bumps owner_epoch for the room and returns the new value — the fencing token the caller passes to
+  // compact(). A new owner acquires a strictly higher epoch than any prior owner, so a paused zombie's
+  // late compaction (carrying the stale epoch) fails the WHERE clause in compact() below.
+  acquireLease(docId: string): Promise<number>
   // Returns the row's seq (as a string — Postgres bigint) so the caller can track exactly which
   // updates are durably applied, for compact()'s exact-set fold below.
   appendUpdate(docId: string, docEpoch: number, update: Uint8Array): Promise<string>
+  // ownerEpoch is the lease from acquireLease(); the snapshot write is conditional on it, so a
+  // stale-epoch caller updates 0 rows and this throws before deleting anything (durability rule 4).
   // seqs must be the EXACT set of rows the caller has independently confirmed are already reflected
   // in the snapshot bytes (not a "<= max" bound) — see persistenceExtension.ts's onChange tracking for
   // why a numeric threshold isn't safe here.
-  compact(docId: string, docEpoch: number, snapshot: Uint8Array, stateVector: Uint8Array, seqs: string[]): Promise<void>
+  compact(docId: string, docEpoch: number, ownerEpoch: number, snapshot: Uint8Array, stateVector: Uint8Array, seqs: string[]): Promise<void>
 }
 
 // A connection can land after the server has already started shutting down (a client's in-flight
@@ -68,6 +74,20 @@ export function createPostgresStore(pool: Pool): DocumentStore {
       }
     },
 
+    // A lease grant: bump owner_epoch (create the row at epoch 1 if absent) and hand back the new
+    // value. Unfenced by design — taking the lease is exactly the act of superseding the prior owner.
+    async acquireLease(docId) {
+      assertPoolOpen(pool)
+      const res = await pool.query<{ owner_epoch: string }>(
+        `INSERT INTO documents (doc_id, owner_epoch)
+         VALUES ($1, 1)
+         ON CONFLICT (doc_id) DO UPDATE SET owner_epoch = documents.owner_epoch + 1
+         RETURNING owner_epoch::text`,
+        [docId],
+      )
+      return Number(res.rows[0].owner_epoch)
+    },
+
     // Called from beforeHandleMessage, strictly before Hocuspocus's MessageReceiver.apply runs (see
     // node_modules/@hocuspocus/server's Connection.handleMessage: it chains
     // `beforeHandleMessage(...).then(() => apply())`, so this INSERT is committed before the update
@@ -94,17 +114,25 @@ export function createPostgresStore(pool: Pool): DocumentStore {
     // can outrun a concurrent appendUpdate whose row already committed but whose apply() hasn't run
     // yet, which would delete an update the snapshot never actually captured — silent data loss with
     // no crash involved. See persistenceExtension.ts's onChange-driven seq tracking.
-    async compact(docId, docEpoch, snapshot, stateVector, seqs) {
+    async compact(docId, docEpoch, ownerEpoch, snapshot, stateVector, seqs) {
       assertPoolOpen(pool)
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
-        await client.query(
-          `INSERT INTO documents (doc_id, doc_epoch, snapshot, state_vector, updated_at)
-           VALUES ($1, $2, $3, $4, now())
-           ON CONFLICT (doc_id) DO UPDATE SET snapshot = $3, state_vector = $4, updated_at = now()`,
-          [docId, docEpoch, Buffer.from(snapshot), Buffer.from(stateVector)],
+        // The whole read-modify-write is fenced on owner_epoch. If a new owner has bumped the epoch,
+        // the DO UPDATE's WHERE excludes this row, rowCount is 0, and we throw — the DELETE below never
+        // runs, so a stale owner can neither clobber the snapshot nor drop log rows the new owner has
+        // not folded (distributed-systems.md's concrete two-owner trace).
+        const res = await client.query(
+          `INSERT INTO documents (doc_id, doc_epoch, owner_epoch, snapshot, state_vector, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now())
+           ON CONFLICT (doc_id) DO UPDATE SET snapshot = $4, state_vector = $5, updated_at = now()
+           WHERE documents.owner_epoch = $3`,
+          [docId, docEpoch, ownerEpoch, Buffer.from(snapshot), Buffer.from(stateVector)],
         )
+        if (res.rowCount === 0) {
+          throw new Error(`[scroll-store] compaction fenced: stale owner_epoch ${ownerEpoch} for ${docId}`)
+        }
         if (seqs.length > 0) {
           await client.query('DELETE FROM document_updates WHERE doc_id = $1 AND seq = ANY($2::bigint[])', [docId, seqs])
         }
