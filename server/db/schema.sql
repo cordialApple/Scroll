@@ -1,5 +1,6 @@
 -- P3.4 durable store. Snapshot + append-only log, byte-compatible with the Y.Doc wire format.
--- owner_epoch/doc_epoch columns exist now but are unfenced until P3.5 wires the lease check.
+-- P3.5 fences the compaction transaction on owner_epoch (store.ts compact()); doc_epoch stays a
+-- constant until the P3.6+ reset protocol uses it.
 CREATE TABLE IF NOT EXISTS documents (
   doc_id TEXT PRIMARY KEY,
   doc_epoch BIGINT NOT NULL DEFAULT 0,

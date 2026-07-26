@@ -3,7 +3,8 @@ import type { Extension } from '@hocuspocus/server'
 import type { DocumentStore } from './store'
 import { extractSyncUpdate } from './extractSyncUpdate'
 
-// P3.5 owns real epoch fencing; P3.4 just threads a constant so the column shape is already load-bearing.
+// doc_epoch is the reset epoch (P3.6+); still a constant here. owner_epoch is the P3.5 fencing token,
+// acquired per document below and threaded into compact().
 const DOC_EPOCH_V1 = 0
 
 export function createPersistenceExtension(store: DocumentStore): Extension {
@@ -16,9 +17,14 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
   // bug this queue exists to close.
   const pendingSeqs = new Map<string, string[]>()
   const foldableSeqs = new Map<string, string[]>()
+  const leases = new Map<string, number>()
 
   return {
     async onLoadDocument({ documentName, document }) {
+      // Take the lease before loading: this owner now holds the room, and every compact() it issues
+      // carries this epoch. A localhost single server always matches its own; the fence is latent here
+      // but store-enforced, so a real second owner would supersede it (distributed-systems.md).
+      leases.set(documentName, await store.acquireLease(documentName))
       const loaded = await store.loadDocument(documentName)
       if (loaded.snapshot) Y.applyUpdate(document, loaded.snapshot)
       for (const update of loaded.updates) Y.applyUpdate(document, update)
@@ -52,16 +58,32 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
     // before encoding the snapshot: any seq newly confirmed WHILE compact() is in flight lands in a
     // fresh array instead, deferred to the next round rather than raced into this DELETE.
     async onStoreDocument({ documentName, document }) {
+      const lease = leases.get(documentName)
+      if (lease === undefined) {
+        console.error(`[scroll-persistence] no lease for ${documentName}; skipping compaction`)
+        return
+      }
       const seqs = foldableSeqs.get(documentName) ?? []
       foldableSeqs.set(documentName, [])
       const snapshot = Y.encodeStateAsUpdate(document)
       const stateVector = Y.encodeStateVector(document)
-      await store.compact(documentName, DOC_EPOCH_V1, snapshot, stateVector, seqs)
+      try {
+        await store.compact(documentName, DOC_EPOCH_V1, lease, snapshot, stateVector, seqs)
+      } catch (err) {
+        // Hocuspocus runs onStoreDocument on an un-awaited debounce timer, so a throw here escapes as
+        // an unhandledRejection and (Node default) crashes every room, not just this stale owner's. A
+        // fenced compaction is an expected, contained failure — the store rejected our write, no data
+        // lost — so log loudly and swallow. Re-defer the seqs we pulled: our snapshot never landed, so
+        // those rows are still un-folded (harmless if we're a zombie — the live owner folds them).
+        console.error(`[scroll-persistence] compaction rejected for ${documentName}:`, err)
+        foldableSeqs.set(documentName, [...seqs, ...(foldableSeqs.get(documentName) ?? [])])
+      }
     },
 
     async beforeUnloadDocument({ documentName }) {
       pendingSeqs.delete(documentName)
       foldableSeqs.delete(documentName)
+      leases.delete(documentName)
     },
   }
 }
