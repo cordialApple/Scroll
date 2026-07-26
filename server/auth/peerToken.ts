@@ -32,6 +32,10 @@ export interface MintOptions {
 
 const TOKEN_VERSION = 1
 
+// A generic peer capability (contract-1): the room grants write via a cap, so read-only peers exist
+// without a separate role. propose/commit (P4.3) will add more caps through the same mechanism.
+export const CAP_WRITE = 'write'
+
 function sign(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url')
 }
@@ -106,9 +110,24 @@ export interface AuthContext {
 }
 
 // Adapts the trust root to the ingress `authenticate` seam: the connection's room is the Hocuspocus
-// documentName, so room-scope is enforced against the actual room being joined, not a peer claim.
+// documentName, so room-scope is enforced against the actual room being joined, not a peer claim. The
+// identity is namespaced under `peer` so it can't collide with any other extension's context keys.
 export function createPeerAuthenticator(
   secret: string,
-): (token: string, ctx: AuthContext) => PeerIdentity {
-  return (token, ctx) => verifyPeerToken(secret, token, { room: ctx.documentName })
+): (token: string, ctx: AuthContext) => { peer: PeerIdentity } {
+  return (token, ctx) => ({ peer: verifyPeerToken(secret, token, { room: ctx.documentName }) })
+}
+
+// Reads back the authenticated identity a connection carries (the `createPeerAuthenticator` return
+// spread into Hocuspocus context). Shape-validated so a downstream hook never trusts a malformed
+// context; returns null for a tokenless connection (no `peer`), which callers treat as unauthenticated.
+export function peerFromContext(ctx: unknown): PeerIdentity | null {
+  if (!ctx || typeof ctx !== 'object') return null
+  const peer = (ctx as { peer?: unknown }).peer
+  if (!peer || typeof peer !== 'object') return null
+  const p = peer as Record<string, unknown>
+  if (p.role !== 'human' && p.role !== 'agent') return null
+  if (typeof p.sub !== 'string' || typeof p.room !== 'string') return null
+  if (!Array.isArray(p.caps) || !p.caps.every((c) => typeof c === 'string')) return null
+  return { sub: p.sub, role: p.role, caps: p.caps as string[], room: p.room }
 }

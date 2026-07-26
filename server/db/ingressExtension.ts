@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import type { Extension } from '@hocuspocus/server'
 import { extractSyncUpdate } from './extractSyncUpdate'
+import { CAP_WRITE, peerFromContext } from '../auth/peerToken'
 
 // 4400 is a generic application close code, chosen deliberately over Hocuspocus's named codes. The
 // provider's onClose special-cases exactly three: Unauthorized(4401) and MessageTooBig(1009) set
@@ -13,6 +14,14 @@ const REFUSE_CODE = 4400
 function refuse(reason: string): Error {
   // handleMessage reads `code`/`reason` straight off the thrown error to close the socket.
   return Object.assign(new Error(reason), { code: REFUSE_CODE, reason })
+}
+
+// A read-only peer still sends one no-op syncStep2 during the handshake (its empty diff against the
+// server). That carries no structs/deletes, so it is not a "write" and must not trip the write-cap
+// gate — only a state-mutating update does.
+function mutatesState(update: Uint8Array): boolean {
+  const { structs, ds } = Y.decodeUpdate(update)
+  return structs.length > 0 || ds.clients.size > 0
 }
 
 export interface IngressOptions {
@@ -34,7 +43,7 @@ export function createIngressExtension(opts: IngressOptions = {}): Extension {
   const maxUpdateBytes = opts.maxUpdateBytes ?? 8 * 1024 * 1024
 
   const ext: Extension = {
-    async beforeHandleMessage({ update }) {
+    async beforeHandleMessage({ update, context }) {
       if (update.byteLength > maxUpdateBytes) {
         throw refuse(`update rejected: ${update.byteLength}B exceeds ${maxUpdateBytes}B cap`)
       }
@@ -57,6 +66,14 @@ export function createIngressExtension(opts: IngressOptions = {}): Extension {
           Y.applyUpdate(new Y.Doc(), syncUpdate)
         } catch {
           throw refuse('update rejected: undecodable update payload')
+        }
+        // contract-1 AuthZ at the seam: a write from an authenticated peer lacking the write cap is
+        // refused before persist — the room-side backstop for the peer-obligated write discipline. A
+        // tokenless connection carries no peer (single-owner localhost) and is unaffected; a read-only
+        // peer that behaves never sends a sync frame, so it observes uninterrupted.
+        const peer = peerFromContext(context)
+        if (peer && !peer.caps.includes(CAP_WRITE) && mutatesState(syncUpdate)) {
+          throw refuse('update rejected: peer lacks write capability')
         }
       }
     },

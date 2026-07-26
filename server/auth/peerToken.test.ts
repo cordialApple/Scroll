@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPeerAuthenticator, mintPeerToken, verifyPeerToken } from './peerToken'
+import { CAP_WRITE, createPeerAuthenticator, mintPeerToken, peerFromContext, verifyPeerToken } from './peerToken'
 
 const SECRET = 'scroll-trust-root-secret'
 const T0 = 1_700_000_000_000
@@ -55,10 +55,28 @@ describe('P4.1 peer token — mint + verify (contract-7 trust root)', () => {
     expect(mintPeerToken(SECRET, { mode: 'off', sub: 'x', role: 'agent', room: 'r', ttlMs: 1_000, now: T0 })).toContain('.')
   })
 
-  it('createPeerAuthenticator enforces room-scope against the joined documentName', () => {
+  it('createPeerAuthenticator enforces room-scope against the joined documentName; identity is namespaced under peer', () => {
     const authenticate = createPeerAuthenticator(SECRET)
     const token = mintPeerToken(SECRET, { mode: 'off', sub: 'u', role: 'agent', room: 'doc-9', ttlMs: 60_000 })
-    expect(authenticate(token, { documentName: 'doc-9' }).role).toBe('agent')
+    expect(authenticate(token, { documentName: 'doc-9' }).peer.role).toBe('agent')
     expect(() => authenticate(token, { documentName: 'doc-other' })).toThrow(/not scoped to this room/)
+  })
+})
+
+describe('P4.2 peerFromContext (identity read-back from connection context)', () => {
+  const identity = { peer: { sub: 'u', role: 'agent' as const, caps: [CAP_WRITE], room: 'r' } }
+
+  it('returns the identity for a well-formed context', () => {
+    expect(peerFromContext(identity)).toEqual({ sub: 'u', role: 'agent', caps: ['write'], room: 'r' })
+  })
+
+  it('returns null for a tokenless / malformed context (never trusts a bad shape)', () => {
+    expect(peerFromContext(undefined)).toBeNull()
+    expect(peerFromContext({})).toBeNull()
+    expect(peerFromContext({ peer: null })).toBeNull()
+    expect(peerFromContext({ peer: { sub: 'u', role: 'root', caps: [], room: 'r' } })).toBeNull()
+    expect(peerFromContext({ peer: { sub: 'u', role: 'agent', caps: 'write', room: 'r' } })).toBeNull()
+    expect(peerFromContext({ peer: { sub: 'u', role: 'agent', caps: [42], room: 'r' } })).toBeNull()
+    expect(peerFromContext({ peer: { sub: 1, role: 'agent', caps: [], room: 'r' } })).toBeNull()
   })
 })
