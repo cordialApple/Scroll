@@ -109,17 +109,22 @@ describe('P5.1 dictation core — commit-on-final into the block model', () => {
     for (const i of [0, 1, 3, 4]) expect(blockTextString(doc, order[i])).toBe(`block ${i}`)
   })
 
-  it('a final with no target is a no-op', () => {
+  it('a final with no target, or a whitespace-only final, is a no-op', () => {
     const doc = createDoc()
     appendBlock(doc, 'paragraph', 'untouched')
     const id = blockOrder(doc)[0]
     const before = Y.encodeStateAsUpdate(doc)
 
-    const ft = createFakeTranscriber()
-    const dict = createDictation(doc, ft, () => null)
-    ft.start()
-    ft.emitFinal('dropped')
+    const noTarget = createFakeTranscriber()
+    const dict = createDictation(doc, noTarget, () => null)
+    noTarget.start()
+    noTarget.emitFinal('dropped')
     expect(dict.interimText).toBe('')
+
+    const ws = createFakeTranscriber()
+    createDictation(doc, ws, () => ({ blockId: id, caret: 8 }))
+    ws.start()
+    ws.emitFinal('   ')
 
     expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
     expect(blockTextString(doc, id)).toBe('untouched')

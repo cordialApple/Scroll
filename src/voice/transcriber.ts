@@ -13,6 +13,10 @@ export interface TranscriberError {
   message?: string
 }
 
+// isFinal:false — text is the full provisional tail, replacing the current interim (preview only).
+// isFinal:true — text is the incremental delta to insert at the caret, NOT the cumulative transcript.
+// A Web Speech adapter must emit per-result segment text on finals, not SpeechRecognitionEvent's
+// accumulated results, or the delta path double-inserts.
 export interface TranscriptEvent {
   text: string
   isFinal: boolean

@@ -42,7 +42,7 @@ export function createDictation(
       return
     }
     const target = getTarget()
-    if (!target || !e.text) {
+    if (!target || !e.text.trim()) {
       setInterim('')
       return
     }
