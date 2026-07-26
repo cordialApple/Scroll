@@ -10,6 +10,7 @@ import type { Hocuspocus } from '@hocuspocus/server'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { startScrollServer } from '../../server/hocuspocus'
 import { createPostgresStore } from '../../server/db/store'
+import { createPeerAuthenticator, mintPeerToken } from '../../server/auth/peerToken'
 import { openDoc, type DocHandle } from './persistence'
 import { createDoc, appendBlock, blockViews } from './model'
 
@@ -102,6 +103,14 @@ afterEach(async () => {
     server = null
   }
 })
+
+function connectWithToken(room: string, url: string, token: string): HocuspocusProvider {
+  const socket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket, minDelay: 50, maxDelay: 200 })
+  sockets.push(socket)
+  const provider = new HocuspocusProvider({ websocketProvider: socket, name: room, document: createDoc(), token, preserveConnection: false })
+  providers.push(provider)
+  return provider
+}
 
 describe('P3.6 ingress guard — refuse-and-resync', () => {
   it('an oversized update is refused (4400, with reason), never persisted, and the refused peer resyncs', async () => {
@@ -203,14 +212,6 @@ describe('P3.6 ingress guard — refuse-and-resync', () => {
 describe('P3.6 onAuthenticate seam (contract-7 trust root)', () => {
   const SECRET = 'agent-42'
 
-  function connectWithToken(room: string, url: string, token: string): HocuspocusProvider {
-    const socket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket, minDelay: 50, maxDelay: 200 })
-    sockets.push(socket)
-    const provider = new HocuspocusProvider({ websocketProvider: socket, name: room, document: createDoc(), token, preserveConnection: false })
-    providers.push(provider)
-    return provider
-  }
-
   it('a valid token authenticates; a rejected token is denied', async () => {
     const port = await freePort()
     const room = `auth-${port}`
@@ -238,5 +239,35 @@ describe('P3.6 onAuthenticate seam (contract-7 trust root)', () => {
     await waitFor(() => failed)
     expect(failed).toBe(true)
     expect(denied.isAuthenticated).toBe(false)
+  })
+})
+
+describe('P4.1 room-scoped peer tokens over the wire (contract-7)', () => {
+  const SECRET = 'wire-trust-root'
+
+  it('a token minted for THIS room admits; one minted for another room is denied; expired is denied', async () => {
+    const port = await freePort()
+    const room = `p41-${port}`
+    server = await startScrollServer({ port, databaseUrl: DATABASE_URL, authenticate: createPeerAuthenticator(SECRET) })
+    const url = `ws://127.0.0.1:${port}`
+
+    const good = mintPeerToken(SECRET, { mode: 'off', sub: 'interviewer', role: 'agent', room, ttlMs: 60_000 })
+    const authed = connectWithToken(room, url, good)
+    await waitFor(() => authed.isAuthenticated)
+    expect(authed.isAuthenticated).toBe(true)
+
+    const wrongRoom = mintPeerToken(SECRET, { mode: 'off', sub: 'interviewer', role: 'agent', room: `${room}-elsewhere`, ttlMs: 60_000 })
+    const deniedScope = connectWithToken(room, url, wrongRoom)
+    let scopeFailed = false
+    deniedScope.on('authenticationFailed', () => { scopeFailed = true })
+    await waitFor(() => scopeFailed)
+    expect(deniedScope.isAuthenticated).toBe(false)
+
+    const expired = mintPeerToken(SECRET, { mode: 'off', sub: 'interviewer', role: 'agent', room, ttlMs: 1, now: Date.now() - 10_000 })
+    const deniedExpiry = connectWithToken(room, url, expired)
+    let expiryFailed = false
+    deniedExpiry.on('authenticationFailed', () => { expiryFailed = true })
+    await waitFor(() => expiryFailed)
+    expect(deniedExpiry.isAuthenticated).toBe(false)
   })
 })
