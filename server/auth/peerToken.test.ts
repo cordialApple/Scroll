@@ -43,6 +43,12 @@ describe('P4.1 peer token — mint + verify (contract-7 trust root)', () => {
     expect(() => verifyPeerToken(SECRET, '', { room: 'r', now: T0 })).toThrow(/permission-denied/)
   })
 
+  it('a non-finite ttlMs is rejected at mint (no never-expiring token)', () => {
+    for (const ttlMs of [NaN, Infinity, -Infinity]) {
+      expect(() => mintPeerToken(SECRET, { mode: 'off', sub: 'u', role: 'agent', room: 'r', ttlMs, now: T0 })).toThrow(/ttlMs must be finite/)
+    }
+  })
+
   it('contract-3: programmatic:on never mints an agent-role token; human is fine; off may mint agent', () => {
     expect(() => mintPeerToken(SECRET, { mode: 'on', sub: 'x', role: 'agent', room: 'r', ttlMs: 1_000, now: T0 })).toThrow(/contract-3/)
     expect(mintPeerToken(SECRET, { mode: 'on', sub: 'x', role: 'human', room: 'r', ttlMs: 1_000, now: T0 })).toContain('.')

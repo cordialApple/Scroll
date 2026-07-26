@@ -42,6 +42,9 @@ export function mintPeerToken(secret: string, o: MintOptions): string {
   if (o.mode === 'on' && o.role === 'agent') {
     throw new Error('contract-3: programmatic:on never issues an agent-role peer token')
   }
+  // A non-finite ttlMs would make exp NaN/Infinity, which `now >= exp` never rejects — a
+  // never-expiring token. Reject at the source so a computed (non-literal) ttlMs can't arm that.
+  if (!Number.isFinite(o.ttlMs)) throw new Error('ttlMs must be finite')
   const iat = o.now ?? Date.now()
   const claims: PeerClaims = {
     v: TOKEN_VERSION,
@@ -88,7 +91,7 @@ export function verifyPeerToken(secret: string, token: string, o: VerifyOptions)
   if (claims.v !== TOKEN_VERSION) deny('unsupported token version')
   if (claims.role !== 'human' && claims.role !== 'agent') deny('unknown role')
   const now = o.now ?? Date.now()
-  if (typeof claims.exp !== 'number' || now >= claims.exp) deny('token expired')
+  if (!Number.isFinite(claims.exp) || now >= claims.exp) deny('token expired')
   if (claims.room !== o.room) deny('token not scoped to this room')
   return {
     sub: claims.sub,
