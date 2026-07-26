@@ -21,9 +21,10 @@ export interface IngressOptions {
   maxUpdateBytes?: number
   // contract-7 trust root. When present, EVERY connection must authenticate (defining onAuthenticate on
   // any extension flips Hocuspocus's requiresAuthentication server-wide), so leaving it undefined is what
-  // keeps single-owner localhost tokenless. Returns the identity context; throw to deny. Token ISSUANCE
-  // stays P4 — this is only the seam.
-  authenticate?: (token: string) => unknown | Promise<unknown>
+  // keeps single-owner localhost tokenless. Receives the joining room's documentName so room-scope is
+  // enforced against the actual room, not a peer claim. Returns the identity context spread into the
+  // connection context; throw to deny. See server/auth/peerToken.ts for the P4 issuer/verifier.
+  authenticate?: (token: string, ctx: { documentName: string }) => unknown | Promise<unknown>
 }
 
 // Registered BEFORE the persistence extension so a refusal short-circuits the beforeHandleMessage chain
@@ -63,7 +64,7 @@ export function createIngressExtension(opts: IngressOptions = {}): Extension {
 
   if (opts.authenticate) {
     const authenticate = opts.authenticate
-    ext.onAuthenticate = async ({ token }) => authenticate(token)
+    ext.onAuthenticate = async ({ token, documentName }) => authenticate(token, { documentName })
   }
 
   return ext
