@@ -36,8 +36,10 @@ export interface DocumentStore {
   // Returns the row's seq (as a string — Postgres bigint) so the caller can track exactly which
   // updates are durably applied, for compact()'s exact-set fold below.
   appendUpdate(docId: string, docEpoch: number, update: Uint8Array): Promise<string>
-  // ownerEpoch is the lease from acquireLease(); the snapshot write is conditional on it, so a
-  // stale-epoch caller updates 0 rows and this throws before deleting anything (durability rule 4).
+  // ownerEpoch is the lease from acquireLease(); the snapshot write is a pure UPDATE conditional on
+  // it, so a caller with a stale epoch (or no row at all) updates 0 rows and this throws before
+  // deleting anything (durability rule 4). The row always pre-exists: acquireLease/appendUpdate create
+  // it, and compaction only runs for a loaded doc.
   // seqs must be the EXACT set of rows the caller has independently confirmed are already reflected
   // in the snapshot bytes (not a "<= max" bound) — see persistenceExtension.ts's onChange tracking for
   // why a numeric threshold isn't safe here.
@@ -119,19 +121,19 @@ export function createPostgresStore(pool: Pool): DocumentStore {
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
-        // The whole read-modify-write is fenced on owner_epoch. If a new owner has bumped the epoch,
-        // the DO UPDATE's WHERE excludes this row, rowCount is 0, and we throw — the DELETE below never
-        // runs, so a stale owner can neither clobber the snapshot nor drop log rows the new owner has
-        // not folded (distributed-systems.md's concrete two-owner trace).
+        // The whole read-modify-write is fenced on owner_epoch. If a new owner has bumped the epoch
+        // (or the row is somehow absent), the UPDATE matches 0 rows and we throw — the DELETE below
+        // never runs, so a stale owner can neither clobber the snapshot nor drop log rows the new owner
+        // has not folded (distributed-systems.md's concrete two-owner trace). A pure UPDATE (not an
+        // upsert) is what makes this self-fencing: an INSERT ... ON CONFLICT WHERE would skip the fence
+        // entirely on the fresh-row path, where Postgres never evaluates the conflict predicate.
         const res = await client.query(
-          `INSERT INTO documents (doc_id, doc_epoch, owner_epoch, snapshot, state_vector, updated_at)
-           VALUES ($1, $2, $3, $4, $5, now())
-           ON CONFLICT (doc_id) DO UPDATE SET snapshot = $4, state_vector = $5, updated_at = now()
-           WHERE documents.owner_epoch = $3`,
+          `UPDATE documents SET doc_epoch = $2, snapshot = $4, state_vector = $5, updated_at = now()
+           WHERE doc_id = $1 AND owner_epoch = $3`,
           [docId, docEpoch, ownerEpoch, Buffer.from(snapshot), Buffer.from(stateVector)],
         )
         if (res.rowCount === 0) {
-          throw new Error(`[scroll-store] compaction fenced: stale owner_epoch ${ownerEpoch} for ${docId}`)
+          throw new Error(`[scroll-store] compaction fenced: no doc row or stale owner_epoch ${ownerEpoch} for ${docId}`)
         }
         if (seqs.length > 0) {
           await client.query('DELETE FROM document_updates WHERE doc_id = $1 AND seq = ANY($2::bigint[])', [docId, seqs])

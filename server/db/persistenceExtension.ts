@@ -59,12 +59,25 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
     // fresh array instead, deferred to the next round rather than raced into this DELETE.
     async onStoreDocument({ documentName, document }) {
       const lease = leases.get(documentName)
-      if (lease === undefined) return
+      if (lease === undefined) {
+        console.error(`[scroll-persistence] no lease for ${documentName}; skipping compaction`)
+        return
+      }
       const seqs = foldableSeqs.get(documentName) ?? []
       foldableSeqs.set(documentName, [])
       const snapshot = Y.encodeStateAsUpdate(document)
       const stateVector = Y.encodeStateVector(document)
-      await store.compact(documentName, DOC_EPOCH_V1, lease, snapshot, stateVector, seqs)
+      try {
+        await store.compact(documentName, DOC_EPOCH_V1, lease, snapshot, stateVector, seqs)
+      } catch (err) {
+        // Hocuspocus runs onStoreDocument on an un-awaited debounce timer, so a throw here escapes as
+        // an unhandledRejection and (Node default) crashes every room, not just this stale owner's. A
+        // fenced compaction is an expected, contained failure — the store rejected our write, no data
+        // lost — so log loudly and swallow. Re-defer the seqs we pulled: our snapshot never landed, so
+        // those rows are still un-folded (harmless if we're a zombie — the live owner folds them).
+        console.error(`[scroll-persistence] compaction rejected for ${documentName}:`, err)
+        foldableSeqs.set(documentName, [...seqs, ...(foldableSeqs.get(documentName) ?? [])])
+      }
     },
 
     async beforeUnloadDocument({ documentName }) {
