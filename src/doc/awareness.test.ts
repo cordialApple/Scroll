@@ -54,6 +54,19 @@ describe('createPresence — remote cameras', () => {
     presence.destroy()
   })
 
+  it('destroy clears the local camera so peers see no ghost on unmount', () => {
+    const { doc, x } = seedDoc()
+    const aw = new Awareness(doc)
+    const presence = createPresence(doc, aw, { minPublishMs: 0 })
+    presence.publishCamera({ blockId: x, offset: 0 })
+    expect((aw.getStates().get(aw.clientID) as { camera?: unknown }).camera).toBeTruthy()
+
+    presence.destroy()
+
+    const self = aw.getStates().get(aw.clientID) as { camera?: unknown } | undefined
+    expect(self?.camera).toBeUndefined()
+  })
+
   it('excludes the local client from remotes', () => {
     const { doc, x } = seedDoc()
     const aw = new Awareness(doc)

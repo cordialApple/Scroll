@@ -59,6 +59,10 @@ function isAnchor(v: unknown): v is Anchor {
   )
 }
 
+function isUser(v: unknown): v is PresenceUser {
+  return typeof v === 'object' && v !== null && typeof (v as PresenceUser).id === 'string'
+}
+
 export function createPresence(
   doc: Y.Doc,
   awareness: Awareness,
@@ -117,7 +121,7 @@ export function createPresence(
         clientId,
         raw: s.camera,
         anchor: resolveRemoteCamera(doc, s.camera),
-        user: s.user,
+        user: isUser(s.user) ? s.user : undefined,
       })
     })
     return out
