@@ -116,13 +116,13 @@ describe('P3.5 store-enforced epoch fence', () => {
 // regression — lease not acquired on load, wrong epoch threaded, or the contained-throw handling
 // removed — is caught. The hook payloads are the minimal subset each hook reads.
 describe('P3.5 epoch fence — extension wiring', () => {
-  type Hooks = ReturnType<typeof createPersistenceExtension>
+  type Hooks = ReturnType<typeof createPersistenceExtension>['extension']
   const call = (ext: Hooks, hook: keyof Hooks, documentName: string, document: Y.Doc) =>
     (ext[hook] as (p: { documentName: string; document: Y.Doc }) => Promise<unknown>)({ documentName, document })
 
   it('onLoadDocument takes a lease and onStoreDocument folds under it', async () => {
     const store = createPostgresStore(pool)
-    const ext = createPersistenceExtension(store)
+    const ext = createPersistenceExtension(store).extension
     const docId = `ext-ok-${await freePort()}`
     const doc = new Y.Doc()
 
@@ -137,7 +137,7 @@ describe('P3.5 epoch fence — extension wiring', () => {
 
   it("a superseded owner's debounced compaction is contained, not thrown, and does not clobber", async () => {
     const store = createPostgresStore(pool)
-    const ext = createPersistenceExtension(store)
+    const ext = createPersistenceExtension(store).extension
     const docId = `ext-stale-${await freePort()}`
     const doc = new Y.Doc()
 

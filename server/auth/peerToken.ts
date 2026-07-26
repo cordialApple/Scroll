@@ -36,6 +36,11 @@ const TOKEN_VERSION = 1
 // without a separate role. propose/commit (P4.3) will add more caps through the same mechanism.
 export const CAP_WRITE = 'write'
 
+// contract-1 propose/commit: a peer holding this may submit updates as proposals the authority checks
+// at apply time (op-grain refuse, no teardown) instead of applying locally first. Any peer may use it;
+// guarded agent writes must. Generic — the native agent and an external agent grant it the same way.
+export const CAP_PROPOSE = 'propose'
+
 function sign(secret: string, payload: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url')
 }

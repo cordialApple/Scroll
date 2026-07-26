@@ -1,7 +1,7 @@
 import * as Y from 'yjs'
 import type { Extension } from '@hocuspocus/server'
 import { extractSyncUpdate } from './extractSyncUpdate'
-import { CAP_WRITE, peerFromContext } from '../auth/peerToken'
+import { CAP_WRITE, peerFromContext, type PeerIdentity } from '../auth/peerToken'
 
 // 4400 is a generic application close code, chosen deliberately over Hocuspocus's named codes. The
 // provider's onClose special-cases exactly three: Unauthorized(4401) and MessageTooBig(1009) set
@@ -31,9 +31,11 @@ export interface IngressOptions {
   // contract-7 trust root. When present, EVERY connection must authenticate (defining onAuthenticate on
   // any extension flips Hocuspocus's requiresAuthentication server-wide), so leaving it undefined is what
   // keeps single-owner localhost tokenless. Receives the joining room's documentName so room-scope is
-  // enforced against the actual room, not a peer claim. Returns the identity context spread into the
-  // connection context; throw to deny. See server/auth/peerToken.ts for the P4 issuer/verifier.
-  authenticate?: (token: string, ctx: { documentName: string }) => unknown | Promise<unknown>
+  // enforced against the actual room, not a peer claim. Returns `{ peer }` — the Scroll-asserted
+  // identity — spread into the connection context; throw to deny. Typing the return as
+  // `{ peer: PeerIdentity }` (not `unknown`) makes a fail-open authenticator that forgets to namespace
+  // its identity a compile error, now that server/ is typechecked (F-03). See server/auth/peerToken.ts.
+  authenticate?: (token: string, ctx: { documentName: string }) => { peer: PeerIdentity } | Promise<{ peer: PeerIdentity }>
 }
 
 // Registered BEFORE the persistence extension so a refusal short-circuits the beforeHandleMessage chain

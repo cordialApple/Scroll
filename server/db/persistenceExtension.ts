@@ -7,7 +7,21 @@ import { extractSyncUpdate } from './extractSyncUpdate'
 // acquired per document below and threaded into compact().
 const DOC_EPOCH_V1 = 0
 
-export function createPersistenceExtension(store: DocumentStore): Extension {
+// Yjs transaction origin tag for a committed propose/commit apply (P4.3). onChange fires for EVERY doc
+// update regardless of origin, so the persistence FIFO below reads this tag to tell an authority commit
+// (folded directly by commitProposal) apart from a sync-path apply (folded via the pending queue) — a
+// proposal's apply must NOT pop a concurrent sync peer's pending seq. Exported for the desync test.
+export const PROPOSE_ORIGIN = 'scroll:propose-commit'
+
+export interface PersistenceExtension {
+  extension: Extension
+  // The authority-write path for a committed proposal (P4.3): persist-before-apply on the SAME durable
+  // ledger the sync path uses, so a committed proposal's row is compacted like any other and never
+  // leaks. Throws if the durable append fails — the caller (propose/commit) must contain that.
+  commitProposal: (documentName: string, document: Y.Doc, update: Uint8Array) => Promise<void>
+}
+
+export function createPersistenceExtension(store: DocumentStore): PersistenceExtension {
   // appendUpdate assigns a seq durably BEFORE that update's apply() runs (see store.ts); onChange
   // fires exactly when the corresponding apply() lands, in the same order beforeHandleMessage calls
   // resolved in (each hook's own `.then()` chains straight to its own apply — see Connection.ts in
@@ -19,7 +33,24 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
   const foldableSeqs = new Map<string, string[]>()
   const leases = new Map<string, number>()
 
-  return {
+  function markFoldable(documentName: string, seq: string): void {
+    const foldable = foldableSeqs.get(documentName) ?? []
+    foldable.push(seq)
+    foldableSeqs.set(documentName, foldable)
+  }
+
+  // Persist-before-apply for an authority-committed proposal: append (durable seq) BEFORE the apply
+  // that broadcasts it, then mark the seq fold-eligible directly. The awaited apply is the confirmation
+  // onChange would otherwise supply for a sync write — and onChange skips PROPOSE_ORIGIN, so this apply
+  // never mispops a concurrent sync peer's pending seq. There is no await between apply and markFoldable,
+  // so no compaction can interleave and snapshot the content without also folding its row.
+  async function commitProposal(documentName: string, document: Y.Doc, update: Uint8Array): Promise<void> {
+    const seq = await store.appendUpdate(documentName, DOC_EPOCH_V1, update)
+    Y.applyUpdate(document, update, PROPOSE_ORIGIN)
+    markFoldable(documentName, seq)
+  }
+
+  const extension: Extension = {
     async onLoadDocument({ documentName, document }) {
       // Take the lease before loading: this owner now holds the room, and every compact() it issues
       // carries this epoch. A localhost single server always matches its own; the fence is latent here
@@ -45,13 +76,15 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
     // Fires once apply() has actually mutated `document` for one applied update — pop the oldest
     // pending seq (FIFO matches apply order) into the fold-eligible set. Fires during onLoadDocument's
     // own replay too; pendingSeqs is empty then, so it's a harmless no-op.
-    async onChange({ documentName }) {
+    async onChange({ documentName, transactionOrigin }) {
+      // A propose/commit apply is folded directly by commitProposal, so its phantom onChange must not
+      // consume a sync-path pending seq — popping here on a proposal's apply would credit an unrelated,
+      // not-yet-applied sync peer's seq as foldable, the silent-data-loss race this FIFO exists to close.
+      if (transactionOrigin === PROPOSE_ORIGIN) return
       const pending = pendingSeqs.get(documentName)
       const seq = pending?.shift()
       if (seq === undefined) return
-      const foldable = foldableSeqs.get(documentName) ?? []
-      foldable.push(seq)
-      foldableSeqs.set(documentName, foldable)
+      markFoldable(documentName, seq)
     },
 
     // Hocuspocus's own debounced hook — safe place to fold the log. Swap out the fold-eligible list
@@ -86,4 +119,6 @@ export function createPersistenceExtension(store: DocumentStore): Extension {
       leases.delete(documentName)
     },
   }
+
+  return { extension, commitProposal }
 }
