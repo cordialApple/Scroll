@@ -66,7 +66,7 @@ interface ProposalMessage {
   u: string
 }
 
-function parseProposal(payload: string): ProposalMessage | null {
+function parseJsonObject(payload: string): Record<string, unknown> | null {
   let msg: unknown
   try {
     msg = JSON.parse(payload)
@@ -74,7 +74,12 @@ function parseProposal(payload: string): ProposalMessage | null {
     return null
   }
   if (!msg || typeof msg !== 'object') return null
-  const m = msg as Record<string, unknown>
+  return msg as Record<string, unknown>
+}
+
+function parseProposal(payload: string): ProposalMessage | null {
+  const m = parseJsonObject(payload)
+  if (!m) return null
   if (m.t !== PROPOSE_MARKER || typeof m.id !== 'string' || typeof m.u !== 'string') return null
   return { t: PROPOSE_MARKER, id: m.id, u: m.u }
 }
@@ -91,14 +96,8 @@ export interface ProposalResult {
 }
 
 export function parseProposalResult(payload: string): ProposalResult | null {
-  let msg: unknown
-  try {
-    msg = JSON.parse(payload)
-  } catch {
-    return null
-  }
-  if (!msg || typeof msg !== 'object') return null
-  const m = msg as Record<string, unknown>
+  const m = parseJsonObject(payload)
+  if (!m) return null
   if (m.t !== RESULT_MARKER || typeof m.id !== 'string' || typeof m.ok !== 'boolean') return null
   return { t: RESULT_MARKER, id: m.id, ok: m.ok, reason: typeof m.reason === 'string' ? m.reason : undefined }
 }
