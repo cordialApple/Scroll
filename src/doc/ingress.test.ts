@@ -9,6 +9,7 @@ import { WebSocket } from 'ws'
 import type { Hocuspocus } from '@hocuspocus/server'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { startScrollServer } from '../../server/hocuspocus'
+import { createPostgresStore } from '../../server/db/store'
 import { openDoc, type DocHandle } from './persistence'
 import { createDoc, appendBlock, blockViews } from './model'
 
@@ -103,7 +104,7 @@ afterEach(async () => {
 })
 
 describe('P3.6 ingress guard — refuse-and-resync', () => {
-  it('an oversized update is refused (4403, with reason), never persisted, and a peer still resyncs the legit state', async () => {
+  it('an oversized update is refused (4400, with reason), never persisted, and the refused peer resyncs', async () => {
     const port = await freePort()
     const room = `ingress-${port}`
     const LIMIT = 4096
@@ -132,20 +133,70 @@ describe('P3.6 ingress guard — refuse-and-resync', () => {
     expect(oversized.byteLength).toBeGreaterThan(LIMIT)
     live.ws!.send(syncUpdateFrame(room, oversized))
 
-    await waitFor(() => seen.some((c) => c.code === 4403))
-    expect(seen.find((c) => c.code === 4403)!.reason).toContain('rejected')
+    await waitFor(() => seen.some((c) => c.code === 4400))
+    expect(seen.find((c) => c.code === 4400)!.reason).toContain('rejected')
 
     // The oversized payload never became a row: the widest persisted update stays under the cap.
     expect(await maxRowBytes(room)).toBeLessThan(LIMIT)
 
-    // A fresh reader converges to the legit state — the refused frame left no trace on the wire or in Postgres.
+    // The RESYNC half, on the refused connection itself: after the 4400 close the attacker peer must
+    // reconnect and keep making progress. A NEW edit written post-refusal only reaches a fresh reader if
+    // `a`'s own socket came back — this is what a fresh peer converging (which would pass even against a
+    // permanently-dead refused peer) cannot prove.
+    appendBlock(a.doc, 'paragraph', 'after refusal survives')
+
     const cleanSocket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket })
     sockets.push(cleanSocket)
     const reader = openDoc(`peerC-${room}`, { room, seed: false, websocketProvider: cleanSocket })
     handles.push(reader)
     await reader.whenSynced
-    await waitFor(() => blockViews(reader.doc).some((v) => v.text === 'legit content'))
-    expect(blockViews(reader.doc).some((v) => v.text === 'legit content')).toBe(true)
+    await waitFor(() => {
+      const texts = blockViews(reader.doc).map((v) => v.text)
+      return texts.includes('legit content') && texts.includes('after refusal survives')
+    })
+    const texts = blockViews(reader.doc).map((v) => v.text)
+    expect(texts).toContain('legit content')
+    expect(texts).toContain('after refusal survives')
+  })
+
+  it('a structurally-corrupt update payload (valid envelope, garbage CRDT bytes) is refused, not persisted', async () => {
+    const port = await freePort()
+    const room = `malformed-${port}`
+    server = await startScrollServer({ port, databaseUrl: DATABASE_URL })
+    const url = `ws://127.0.0.1:${port}`
+
+    const seen: { code: number; reason: string }[] = []
+    const live: { ws: WebSocket | null } = { ws: null }
+    const socket = new HocuspocusProviderWebsocket({
+      url,
+      WebSocketPolyfill: recordingPolyfill(seen, live),
+      minDelay: 50,
+      maxDelay: 200,
+    })
+    sockets.push(socket)
+    const a = openDoc(`peerA-${room}`, { room, seed: true, websocketProvider: socket })
+    handles.push(a)
+    await a.whenSynced
+    await waitFor(async () => (await maxRowBytes(room)) > 0)
+
+    // Valid Hocuspocus/sync envelope wrapping bytes that are NOT a decodable Yjs update. The envelope
+    // passes extractSyncUpdate; the payload fails Y.applyUpdate — which is exactly what a room load would
+    // choke on, so it must never enter the durable log.
+    const garbage = new Uint8Array([9, 9, 9, 255, 255, 7, 3, 1, 200, 200])
+    live.ws!.send(syncUpdateFrame(room, garbage))
+
+    await waitFor(() => seen.some((c) => c.code === 4400))
+    expect(seen.find((c) => c.code === 4400)!.reason).toContain('payload')
+
+    // The durable state stays clean and fully decodable: reconstructing from snapshot+log applies without
+    // throwing and yields the seeded doc. Had the guard let the garbage through, it would sit in the log
+    // as an un-applied row (its apply throws, so compaction never folds/deletes it) and this replay would
+    // throw — so a clean reconstruction is the proof it was never persisted.
+    const loaded = await createPostgresStore(pool).loadDocument(room)
+    const replay = createDoc()
+    if (loaded.snapshot) Y.applyUpdate(replay, loaded.snapshot)
+    for (const u of loaded.updates) Y.applyUpdate(replay, u)
+    expect(blockViews(replay).length).toBeGreaterThan(0)
   })
 })
 

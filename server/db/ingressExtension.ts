@@ -1,12 +1,14 @@
+import * as Y from 'yjs'
 import type { Extension } from '@hocuspocus/server'
 import { extractSyncUpdate } from './extractSyncUpdate'
 
-// 4403 (Forbidden) is deliberate, not arbitrary: it is the ONLY close code the Hocuspocus provider
-// retries. On close it sets shouldConnect=false for Unauthorized(4401) and MessageTooBig(1009), so
-// closing with either of those would refuse the update AND permanently stop the peer — no resync. A
-// 4403 close makes the provider reconnect and re-run sync (step1/step2), which is the "refuse-and-
-// resync" the distributed-systems.md "Rejecting an update" rule requires. See the provider's onClose.
-const REFUSE_CODE = 4403
+// 4400 is a generic application close code, chosen deliberately over Hocuspocus's named codes. The
+// provider's onClose special-cases exactly three: Unauthorized(4401) and MessageTooBig(1009) set
+// shouldConnect=false (the peer never comes back), and Forbidden(4403) hits a quiet-gated early `return`
+// that skips reconnect under the default quiet:false config. Any OTHER 4xxx code falls through to
+// `if (shouldConnect) connect()` — so 4400 is what actually delivers refuse-AND-resync: the offending
+// frame is dropped, the socket closes with a reason, and the peer reconnects and re-runs sync.
+const REFUSE_CODE = 4400
 
 function refuse(reason: string): Error {
   // handleMessage reads `code`/`reason` straight off the thrown error to close the socket.
@@ -35,13 +37,26 @@ export function createIngressExtension(opts: IngressOptions = {}): Extension {
       if (update.byteLength > maxUpdateBytes) {
         throw refuse(`update rejected: ${update.byteLength}B exceeds ${maxUpdateBytes}B cap`)
       }
-      // A frame we cannot even decode is refused rather than handed to MessageReceiver.apply, whose own
-      // decode failure would land uncaught in handleMessage's .then() (past beforeHandleMessage's guard).
-      // extractSyncUpdate returns null for non-sync frames (awareness/query) — those are legitimate.
+      // Non-sync frames (awareness/query) carry no doc bytes — extractSyncUpdate returns null and they
+      // pass. A frame whose envelope won't even decode is refused here rather than handed downstream.
+      let syncUpdate: Uint8Array | null
       try {
-        extractSyncUpdate(update)
+        syncUpdate = extractSyncUpdate(update)
       } catch {
         throw refuse('update rejected: malformed sync envelope')
+      }
+      // Validate the CRDT payload with the SAME operation the load path uses (applyUpdate to a throwaway
+      // doc). A structurally-corrupt update that persisted here would poison every future room load —
+      // loadDocument replays the log through applyUpdate and would throw on it. Paying one extra apply
+      // at the trust boundary is what keeps un-decodable bytes out of the durable log entirely; a valid
+      // incremental update with missing causal deps buffers without throwing, so this rejects only true
+      // corruption, not legitimate out-of-order updates.
+      if (syncUpdate) {
+        try {
+          Y.applyUpdate(new Y.Doc(), syncUpdate)
+        } catch {
+          throw refuse('update rejected: undecodable update payload')
+        }
       }
     },
   }

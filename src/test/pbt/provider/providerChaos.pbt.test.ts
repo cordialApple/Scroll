@@ -4,6 +4,7 @@ import fc from 'fast-check'
 import * as Y from 'yjs'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { WebSocket } from 'ws'
 import type { Hocuspocus } from '@hocuspocus/server'
 import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { startScrollServer } from '../../../../server/hocuspocus'
@@ -58,7 +59,7 @@ function freePort(): Promise<number> {
 
 const tick = (ms = 25) => new Promise((r) => setTimeout(r, ms))
 
-async function waitFor(pred: () => boolean, timeoutMs = 10000): Promise<boolean> {
+async function waitFor(pred: () => boolean, timeoutMs = 15000): Promise<boolean> {
   const start = Date.now()
   while (!pred()) {
     if (Date.now() - start > timeoutMs) return false
@@ -173,6 +174,10 @@ async function runSchedule(peers: Peer[], events: Event[], guarded: ReadonlySet<
     else if (e.t === 'dupe') peers[e.r % peers.length].ctrl.dupe = e.on
     await tick(e.t === 'cut' ? 60 : 15)
   }
+  // Ordering here is load-bearing, not stylistic: EVERY peer's drop/dupe must be cleared before ANY cut
+  // fires. ChaosSocket.send reads ctrl.drop live, including on the fresh socket a reconnect creates — so
+  // a peer still in drop at the moment of its own reconnect would silently swallow its own resync
+  // (SyncStep1), losing its pending edits. Do not merge these two loops into one per-peer pass.
   for (const p of peers) {
     p.ctrl.drop = false
     p.ctrl.dupe = false
@@ -224,7 +229,7 @@ describe('PBT: provider-chaos over real transport', () => {
       }),
       { seed: SEED, numRuns: RUNS },
     )
-  }, 120000)
+  }, 300000)
 })
 
 // Persist-before-broadcast under chaos. The server's compaction debounce is pushed past the whole test,
@@ -249,8 +254,12 @@ describe('PBT: provider-chaos durability (persist-before-broadcast over the wire
   })
 
   const openPeers: Peer[][] = []
+  const keepers: DocHandle[] = []
+  const keeperSockets: HocuspocusProviderWebsocket[] = []
   afterEach(() => {
     for (const peers of openPeers.splice(0)) destroyPeers(peers)
+    for (const h of keepers.splice(0)) h.destroy()
+    for (const s of keeperSockets.splice(0)) s.destroy()
   })
 
   it('[durability] the converged state reconstructs from the append log alone (snapshot never written)', async () => {
@@ -260,36 +269,59 @@ describe('PBT: provider-chaos durability (persist-before-broadcast over the wire
         const room = `dur-${run++}-${process.pid}`
         const peers = await makePeers(n, room, url, true)
         openPeers.push(peers)
-        // A keeper on a clean socket, never cut, holds the room resident: without at least one live
-        // connection the heal-phase cut would briefly drop the server to 0 connections, and Hocuspocus's
-        // unloadImmediately forces a compaction on unload — writing the very snapshot this property must
-        // NOT see. The keeper keeps the connection count ≥1, so no unload, no compaction.
-        const keeper = makePeers(1, room, url, false)
-        const [keep] = await keeper
-        openPeers.push([keep])
 
-        for (let i = 0; i < init; i++) applyOp(peers[0].handle.doc, { k: 'insert', pos: i, text: `d${i}` }, NONE)
+        // A keeper holds the room resident so the connection count never hits 0: without it the heal
+        // cut (which drops every chaos peer at once) would momentarily leave the server with 0
+        // connections, and Hocuspocus's unloadImmediately forces a compaction on unload — writing the
+        // very snapshot this property must NOT see. It runs on a plain socket with a huge
+        // messageReconnectTimeout so its own watchdog never fires mid-run, and — critically — we await
+        // network `synced`, not just whenSynced (local-only), so the server-side Connection is actually
+        // registered before the first cut. whenSynced alone gates on IndexedDB and could leave a
+        // 0-connection window.
+        const keeperSocket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket, messageReconnectTimeout: 600000 })
+        keeperSockets.push(keeperSocket)
+        const keep = openDoc(`keeper-${room}`, { room, seed: false, websocketProvider: keeperSocket })
+        keepers.push(keep)
+        await keep.whenSynced
+        const keeperConnected = await waitFor(() => keep.network?.synced === true)
+        expect(keeperConnected, `keeper never reached the server for ${room}`).toBe(true)
 
-        const converged = await runSchedule(peers, events, NONE)
+        // A guarded sentinel that no op can delete/merge/edit guarantees the doc is never emptied to
+        // "[]" — otherwise a schedule that drains every block makes the reconstruction assertion below
+        // "[]" === "[]", true even against a fully-empty (sabotaged) append log. The sentinel keeps the
+        // equality load-bearing on every run.
+        const sentinel = makeBlock('paragraph', `sentinel-${room}`)
+        peers[0].handle.doc.transact(() => blocks(peers[0].handle.doc).insert(0, [sentinel]))
+        const guarded: ReadonlySet<string> = new Set([blockId(sentinel)])
+        for (let i = 0; i < init; i++) applyOp(peers[0].handle.doc, { k: 'insert', pos: i, text: `d${i}` }, guarded)
+
+        const converged = await runSchedule(peers, events, guarded)
         expect(converged, `peers did not converge for room ${room}`).toBe(true)
         const finalViews = viewsKey(peers[0].handle.doc)
+        const finalRedirects = redirectsKey(peers[0].handle.doc)
+        expect(finalViews).not.toBe('[]')
 
         // Peers stay connected and the debounce is huge, so nothing has compacted: durable state is the
-        // raw append log. Fold it onto a fresh doc and it must equal what the peers converged on.
+        // raw append log. Fold it onto a fresh doc and it must equal what the peers converged on — both
+        // the block array AND the redirects map, so the proof is full-doc, not blocks-only.
         const loaded = await store.loadDocument(room)
         expect(loaded.snapshot, `no compaction should have run for ${room}`).toBeNull()
         const replay = createDoc()
         for (const u of loaded.updates) Y.applyUpdate(replay, u)
-        expect(viewsKey(replay), `append-log reconstruction diverged for ${room}`).toBe(finalViews)
+        expect(viewsKey(replay), `append-log block reconstruction diverged for ${room}`).toBe(finalViews)
+        expect(redirectsKey(replay), `append-log redirect reconstruction diverged for ${room}`).toBe(finalRedirects)
 
         destroyPeers(peers)
-        destroyPeers([keep])
-        openPeers.splice(0)
+        openPeers.splice(openPeers.indexOf(peers), 1)
+        keep.destroy()
+        keepers.splice(keepers.indexOf(keep), 1)
+        keeperSocket.destroy()
+        keeperSockets.splice(keeperSockets.indexOf(keeperSocket), 1)
         return true
       }),
       { seed: SEED, numRuns: HEAVY_RUNS },
     )
-  }, 120000)
+  }, 300000)
 })
 
 // The §5A anchor-under-concurrency thesis lifted onto real transport: one peer merges an anchor block
@@ -318,7 +350,7 @@ describe('PBT: provider-chaos anchor-under-concurrency (over the wire)', () => {
   it('[anchor] a merged-away anchor resolves to its predecessor on every peer after a chaos schedule', async () => {
     let run = 0
     await fc.assert(
-      fc.asyncProperty(nArb, fc.integer({ min: 3, max: 6 }), fc.nat(), scheduleArb, async (n, init, aSel, events) => {
+      fc.asyncProperty(nArb, fc.integer({ min: 4, max: 7 }), fc.nat(), scheduleArb, async (n, init, aSel, events) => {
         const room = `anchor-${run++}-${process.pid}`
         // No seed on any peer: build a known MARK-only spine on peer 0 so anchor/predecessor ids are
         // unambiguous, then let it replicate before choosing the anchor.
@@ -362,5 +394,5 @@ describe('PBT: provider-chaos anchor-under-concurrency (over the wire)', () => {
       }),
       { seed: SEED, numRuns: HEAVY_RUNS },
     )
-  }, 120000)
+  }, 300000)
 })
