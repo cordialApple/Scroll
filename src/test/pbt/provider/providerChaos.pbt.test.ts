@@ -322,14 +322,7 @@ describe('PBT: provider-chaos anchor-under-concurrency (over the wire)', () => {
         const room = `anchor-${run++}-${process.pid}`
         // No seed on any peer: build a known MARK-only spine on peer 0 so anchor/predecessor ids are
         // unambiguous, then let it replicate before choosing the anchor.
-        const peers: Peer[] = []
-        for (let k = 0; k < n; k++) {
-          const ctrl = new ChaosController()
-          const socket = chaosSocket(url, ctrl)
-          const handle = openDoc(`peer${k}-${room}`, { room, seed: false, websocketProvider: socket })
-          peers.push({ handle, ctrl, socket })
-        }
-        await Promise.all(peers.map((p) => p.handle.whenSynced))
+        const peers = await makePeers(n, room, url, false)
         openPeers.push(peers)
 
         const spine = peers[0].handle.doc
