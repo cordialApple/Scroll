@@ -306,9 +306,14 @@ describe('P4.2 role-aware ingress authZ (contract-1 AuthZ at the seam)', () => {
     const provider = new HocuspocusProvider({ websocketProvider: socket, name: room, document: createDoc(), token: roTok, preserveConnection: false })
     providers.push(provider)
 
-    // Authenticates and completes the empty handshake WITHOUT being closed — a read-only peer observes fine.
+    // Authenticates AND completes the initial sync, then stays connected with ZERO closes — a read-only
+    // peer observes fine. The empty handshake syncStep2 is a no-op write; a regression that refused it
+    // (dropping the mutatesState exception) would loop-reconnect, so a settle window with no 4400 is
+    // what makes this non-vacuous (synced alone races ahead of the first close being recorded).
     await waitFor(() => provider.isAuthenticated)
-    expect(seen.some((c) => c.code === 4400)).toBe(false)
+    await waitFor(() => provider.synced)
+    await new Promise((r) => setTimeout(r, 250))
+    expect(seen.filter((c) => c.code === 4400)).toEqual([])
 
     // A genuine content update from the same no-write peer is refused at ingress, before persist.
     const src = createDoc()
