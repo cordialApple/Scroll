@@ -3,6 +3,14 @@
 PersonalServer is a C#/.NET stdio MCP server, exclusively for Claude clients. It is the first
 programmatic consumer of Scroll's `ide-es`.
 
+> **Status — implemented and verified end-to-end (2026-07-25).** PersonalServer's side is
+> feature-complete: a `seed_ide_endpoint` tool that seeds the schema and returns a spawn URL, plus the
+> loopback verdict receiver and a `get_scroll_verdict` readback tool. It has been driven through the
+> real MCP protocol against a running Scroll — seed → browser spawn → grade → contract-6 callback →
+> readback, all passing — and the seed encoder is cross-checked against Scroll's own `decodeSchema` /
+> `create_ide_es`. The problem-source / grading-trust decision below remains the one open item, and it
+> is Scroll's to close, not PersonalServer's.
+
 ## What PersonalServer does
 
 It **seeds an ide-es schema** and receives a spawned endpoint. It never runs the editor and never
@@ -19,7 +27,11 @@ grades. Concretely, a PersonalServer MCP tool:
    budget, no Scroll internals in the payload. Delivery is fire-and-forget: an unreachable consumer
    never surfaces to the user.
 4. PersonalServer's loopback receiver records the verdict into its own store, keyed by the
-   correlation id; a `get_scroll_verdict` tool reads it back so Claude learns the outcome.
+   correlation id; a `get_scroll_verdict` tool reads it back so Claude learns the outcome. Because
+   Scroll fires the contract-6 POST as a cross-origin browser `fetch` with `content-type: application/json`
+   (a non-simple request), the browser sends a CORS preflight first — the receiver must answer the
+   `OPTIONS` preflight and set `Access-Control-Allow-Origin`, or the real POST never leaves the tab. This
+   is a consumer-side requirement of contract 6, not a change to the contract.
 
 Claude in conversation is the only intelligence on this path. Scroll hosts the IDE and runs the
 grader; the submission resolves only when the hidden tests pass within the TLE / complexity budget.
