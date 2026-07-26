@@ -31,6 +31,7 @@ export async function createScrollServer(opts: ScrollServerOptions): Promise<Hoc
   const pool = createPool(opts.databaseUrl)
   await bootstrapSchema(pool)
   const store = createPostgresStore(pool)
+  const persistence = createPersistenceExtension(store)
 
   return new Hocuspocus({
     port: opts.port,
@@ -39,8 +40,8 @@ export async function createScrollServer(opts: ScrollServerOptions): Promise<Hoc
     ...(opts.maxDebounce !== undefined ? { maxDebounce: opts.maxDebounce } : {}),
     extensions: [
       createIngressExtension({ maxUpdateBytes: opts.maxUpdateBytes, authenticate: opts.authenticate }),
-      createPersistenceExtension(store),
-      createProposeCommitExtension(store, { guard: opts.proposalGuard, maxUpdateBytes: opts.maxUpdateBytes }),
+      persistence.extension,
+      createProposeCommitExtension(persistence.commitProposal, { guard: opts.proposalGuard, maxUpdateBytes: opts.maxUpdateBytes }),
       // Hocuspocus registers its own process-wide SIGINT/SIGTERM/SIGQUIT handler on every listen()
       // call and never removes it (even after destroy()) — in a test run that creates many servers,
       // one real termination signal fires all of them, each re-destroying its own already-destroyed

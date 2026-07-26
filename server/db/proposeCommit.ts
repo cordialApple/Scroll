@@ -1,8 +1,6 @@
 import * as Y from 'yjs'
 import type { Extension } from '@hocuspocus/server'
 import { CAP_PROPOSE, peerFromContext, type PeerIdentity } from '../auth/peerToken'
-import type { DocumentStore } from './store'
-import { DOC_EPOCH_V1 } from './persistenceExtension'
 
 export type GuardResult = { ok: true } | { ok: false; reason: string }
 
@@ -56,9 +54,6 @@ export function evaluateProposal(args: EvaluateProposalArgs): ProposalDecision {
 
 const PROPOSE_MARKER = 'scroll/propose'
 const RESULT_MARKER = 'scroll/propose-result'
-// A server-origin tag so the persistence onChange (which only tracks sync-path pending seqs) and any
-// future observer can tell a committed proposal apart from a wire sync update.
-export const PROPOSE_ORIGIN = 'scroll:propose-commit'
 
 interface ProposalMessage {
   t: typeof PROPOSE_MARKER
@@ -115,13 +110,20 @@ export interface ProposeCommitOptions {
   maxUpdateBytes?: number
 }
 
+// Persists-before-applies a committed proposal on the persistence extension's own durable ledger, so
+// the row is compacted like any sync write (never leaks) and the apply is tagged so persistence's
+// onChange skips it. Injected rather than reaching into the store directly — keeps propose/commit's
+// authZ/guard concern separate from durability bookkeeping while sharing one seq ledger.
+export type CommitProposal = (documentName: string, document: Y.Doc, update: Uint8Array) => Promise<void>
+
 // The propose/commit authority seam. onStateless is Hocuspocus's per-connection channel that does NOT
-// go through MessageReceiver.apply, so a proposal never touches the proposer's own doc — a refusal
-// leaves nothing to unwind. On commit we persist BEFORE applying (contract-5 persist-before-ack, same
-// order the sync path enforces in beforeHandleMessage) and then apply to the authoritative document,
-// whose update handler broadcasts the delta to every connection — the proposer included, so it
-// receives its own committed proposal back exactly like a remote update.
-export function createProposeCommitExtension(store: DocumentStore, opts: ProposeCommitOptions = {}): Extension {
+// touch the proposer's own doc — a refusal leaves nothing to unwind. On commit, commitProposal persists
+// BEFORE applying (contract-5), and the apply broadcasts the delta to every connection (proposer
+// included, so it receives its own committed proposal back like a remote update). The whole body is
+// wrapped: Hocuspocus dispatches this callback fire-and-forget (Connection never awaits it), so ANY
+// escaping throw — a rejected append, an unexpected decode — becomes an unhandledRejection that crashes
+// every room. A commit failure is contained here as an op-grain refusal, never a process crash.
+export function createProposeCommitExtension(commitProposal: CommitProposal, opts: ProposeCommitOptions = {}): Extension {
   const guard = opts.guard ?? allowAllGuard
   const maxUpdateBytes = opts.maxUpdateBytes ?? 8 * 1024 * 1024
 
@@ -130,23 +132,26 @@ export function createProposeCommitExtension(store: DocumentStore, opts: Propose
       const proposal = parseProposal(payload)
       if (!proposal) return // not a Scroll proposal (awareness/history-versioning stateless traffic)
 
-      let update: Uint8Array
       try {
-        update = new Uint8Array(Buffer.from(proposal.u, 'base64url'))
-      } catch {
-        connection.sendStateless(result(proposal.id, { commit: false, reason: 'proposal rejected: malformed payload' }))
-        return
-      }
+        let update: Uint8Array
+        try {
+          update = new Uint8Array(Buffer.from(proposal.u, 'base64url'))
+        } catch {
+          connection.sendStateless(result(proposal.id, { commit: false, reason: 'proposal rejected: malformed payload' }))
+          return
+        }
 
-      const peer = peerFromContext(connection.context)
-      const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes })
+        const peer = peerFromContext(connection.context)
+        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes })
 
-      if (decision.commit) {
-        // Persist-before-apply: the append is durable before the authority mutates or broadcasts.
-        await store.appendUpdate(documentName, DOC_EPOCH_V1, update)
-        Y.applyUpdate(document, update, PROPOSE_ORIGIN)
+        if (decision.commit) await commitProposal(documentName, document, update)
+        connection.sendStateless(result(proposal.id, decision))
+      } catch (err) {
+        // Contain a commit-path failure (e.g. the durable append rejected): refuse op-grain, keep the
+        // room alive. Never rethrow — an escaped throw here crashes every room (see header).
+        console.error(`[scroll-propose] proposal ${proposal.id} failed for ${documentName}:`, err)
+        connection.sendStateless(result(proposal.id, { commit: false, reason: 'proposal rejected: commit failed' }))
       }
-      connection.sendStateless(result(proposal.id, decision))
     },
   }
 }
