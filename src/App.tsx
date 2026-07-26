@@ -57,11 +57,12 @@ export function App() {
 }
 
 function HomeDoc() {
-  const room = useMemo(
-    () => new URLSearchParams(window.location.search).get('room') ?? DOC_ID,
-    [],
-  )
-  const wsUrl = import.meta.env.VITE_SCROLL_WS_URL as string | undefined
+  const { room, wsUrl } = useMemo(() => {
+    const q = new URLSearchParams(window.location.search)
+    // ?ws= override is dev-only (multi-peer e2e / manual two-tab testing); prod uses the build-time env.
+    const ws = (import.meta.env.DEV ? q.get('ws') : null) ?? (import.meta.env.VITE_SCROLL_WS_URL as string | undefined)
+    return { room: q.get('room') ?? DOC_ID, wsUrl: ws ?? undefined }
+  }, [])
   const handle = useMemo(() => openDoc(room, { room, wsUrl }), [room, wsUrl])
   const [synced, setSynced] = useState(false)
   const apiRef = useRef<EditorApi>(null)
