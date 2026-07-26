@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import net from 'node:net'
 import * as Y from 'yjs'
 import * as encoding from 'lib0/encoding'
-import { messageYjsUpdate } from 'y-protocols/sync'
+import { messageYjsSyncStep2, messageYjsUpdate } from 'y-protocols/sync'
 import { Pool } from 'pg'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
@@ -10,7 +10,7 @@ import type { Hocuspocus } from '@hocuspocus/server'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import { startScrollServer } from '../../server/hocuspocus'
 import { createPostgresStore } from '../../server/db/store'
-import { createPeerAuthenticator, mintPeerToken } from '../../server/auth/peerToken'
+import { CAP_WRITE, createPeerAuthenticator, mintPeerToken } from '../../server/auth/peerToken'
 import { openDoc, type DocHandle } from './persistence'
 import { createDoc, appendBlock, blockViews } from './model'
 
@@ -52,11 +52,11 @@ function recordingPolyfill(seen: { code: number; reason: string }[], live: { ws:
 
 // Hocuspocus wire frame: [docName][MessageType.Sync=0][messageYjsUpdate=2][payload]. Injected onto an
 // already-established socket, it reaches the server's Connection.handleMessage → beforeHandleMessage guard.
-function syncUpdateFrame(docName: string, payload: Uint8Array): Uint8Array {
+function syncUpdateFrame(docName: string, payload: Uint8Array, subtype: number = messageYjsUpdate): Uint8Array {
   const enc = encoding.createEncoder()
   encoding.writeVarString(enc, docName)
   encoding.writeVarUint(enc, 0)
-  encoding.writeVarUint(enc, messageYjsUpdate)
+  encoding.writeVarUint(enc, subtype)
   encoding.writeVarUint8Array(enc, payload)
   return encoding.toUint8Array(enc)
 }
@@ -269,5 +269,84 @@ describe('P4.1 room-scoped peer tokens over the wire (contract-7)', () => {
     deniedExpiry.on('authenticationFailed', () => { expiryFailed = true })
     await waitFor(() => expiryFailed)
     expect(deniedExpiry.isAuthenticated).toBe(false)
+  })
+})
+
+describe('P4.2 role-aware ingress authZ (contract-1 AuthZ at the seam)', () => {
+  const SECRET = 'authz-trust-root'
+
+  it("a write-capable peer's content propagates to another peer", async () => {
+    const port = await freePort()
+    const room = `p42w-${port}`
+    server = await startScrollServer({ port, databaseUrl: DATABASE_URL, authenticate: createPeerAuthenticator(SECRET) })
+    const url = `ws://127.0.0.1:${port}`
+
+    const writerTok = mintPeerToken(SECRET, { mode: 'off', sub: 'agent-w', role: 'agent', room, ttlMs: 60_000, caps: [CAP_WRITE] })
+    const readerTok = mintPeerToken(SECRET, { mode: 'off', sub: 'agent-r', role: 'agent', room, ttlMs: 60_000, caps: [CAP_WRITE] })
+    const writer = connectWithToken(room, url, writerTok)
+    const reader = connectWithToken(room, url, readerTok)
+    await waitFor(() => writer.isAuthenticated && reader.isAuthenticated)
+
+    appendBlock(writer.document, 'paragraph', 'edit from a write-capable agent')
+    await waitFor(() => blockViews(reader.document).some((v) => v.text === 'edit from a write-capable agent'))
+    expect(blockViews(reader.document).map((v) => v.text)).toContain('edit from a write-capable agent')
+  })
+
+  it("a no-write peer authenticates and reads, but its content update is refused (4400) and never persisted", async () => {
+    const port = await freePort()
+    const room = `p42ro-${port}`
+    server = await startScrollServer({ port, databaseUrl: DATABASE_URL, authenticate: createPeerAuthenticator(SECRET) })
+    const url = `ws://127.0.0.1:${port}`
+
+    const roTok = mintPeerToken(SECRET, { mode: 'off', sub: 'observer', role: 'agent', room, ttlMs: 60_000, caps: [] })
+    const seen: { code: number; reason: string }[] = []
+    const live: { ws: WebSocket | null } = { ws: null }
+    const socket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: recordingPolyfill(seen, live), minDelay: 50, maxDelay: 200 })
+    sockets.push(socket)
+    const provider = new HocuspocusProvider({ websocketProvider: socket, name: room, document: createDoc(), token: roTok, preserveConnection: false })
+    providers.push(provider)
+
+    // Authenticates AND completes the initial sync, then stays connected with ZERO closes — a read-only
+    // peer observes fine. The empty handshake syncStep2 is a no-op write; a regression that refused it
+    // (dropping the mutatesState exception) would loop-reconnect, so a settle window with no 4400 is
+    // what makes this non-vacuous (synced alone races ahead of the first close being recorded).
+    await waitFor(() => provider.isAuthenticated)
+    await waitFor(() => provider.synced)
+    await new Promise((r) => setTimeout(r, 250))
+    expect(seen.filter((c) => c.code === 4400)).toEqual([])
+
+    // A genuine content update from the same no-write peer is refused at ingress, before persist.
+    const src = createDoc()
+    appendBlock(src, 'paragraph', 'sneaky write from a read-only peer')
+    const contentUpdate = Y.encodeStateAsUpdate(src)
+    live.ws!.send(syncUpdateFrame(room, contentUpdate))
+
+    await waitFor(() => seen.some((c) => c.code === 4400))
+    expect(seen.find((c) => c.code === 4400)!.reason).toContain('write capability')
+    expect(await maxRowBytes(room)).toBeLessThan(contentUpdate.byteLength)
+  })
+
+  it("a no-write peer's content write framed as syncStep2 is refused too (not just messageYjsUpdate)", async () => {
+    const port = await freePort()
+    const room = `p42s2-${port}`
+    server = await startScrollServer({ port, databaseUrl: DATABASE_URL, authenticate: createPeerAuthenticator(SECRET) })
+    const url = `ws://127.0.0.1:${port}`
+
+    const roTok = mintPeerToken(SECRET, { mode: 'off', sub: 'observer', role: 'agent', room, ttlMs: 60_000, caps: [] })
+    const seen: { code: number; reason: string }[] = []
+    const live: { ws: WebSocket | null } = { ws: null }
+    const socket = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: recordingPolyfill(seen, live), minDelay: 50, maxDelay: 200 })
+    sockets.push(socket)
+    const provider = new HocuspocusProvider({ websocketProvider: socket, name: room, document: createDoc(), token: roTok, preserveConnection: false })
+    providers.push(provider)
+    await waitFor(() => provider.isAuthenticated)
+    await waitFor(() => provider.synced)
+
+    const src = createDoc()
+    appendBlock(src, 'paragraph', 'sneaky syncStep2 write from a read-only peer')
+    live.ws!.send(syncUpdateFrame(room, Y.encodeStateAsUpdate(src), messageYjsSyncStep2))
+
+    await waitFor(() => seen.some((c) => c.code === 4400))
+    expect(seen.find((c) => c.code === 4400)!.reason).toContain('write capability')
   })
 })
