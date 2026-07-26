@@ -6,6 +6,9 @@ import { insertAbove } from './dev/synthetic'
 import { loadCamera } from './doc/camera'
 import { MenuBar } from './chrome/MenuBar'
 import { Toolbar } from './chrome/Toolbar'
+import { PresenceBar } from './chrome/PresenceBar'
+import { createPresence, type Presence } from './doc/awareness'
+import { makePresenceUser } from './doc/presenceUser'
 import { Editor, type EditorApi } from './editor/Editor'
 import type { Anchor } from './layout/layout'
 import { create_ide_es, create_doc_es } from './es/factory'
@@ -64,6 +67,11 @@ function HomeDoc() {
     return { room: q.get('room') ?? DOC_ID, wsUrl: ws ?? undefined }
   }, [])
   const handle = useMemo(() => openDoc(room, { room, wsUrl }), [room, wsUrl])
+  const presence = useMemo<Presence | null>(() => {
+    const aw = handle.network?.awareness
+    return aw ? createPresence(handle.doc, aw, { user: makePresenceUser() }) : null
+  }, [handle])
+  useEffect(() => () => presence?.destroy(), [presence])
   const [synced, setSynced] = useState(false)
   const apiRef = useRef<EditorApi>(null)
   const undoRef = useRef<Y.UndoManager | null>(null)
@@ -85,6 +93,7 @@ function HomeDoc() {
           create_ide_es,
           create_doc_es,
           listEndpoints,
+          presence,
         }
       }
       setSynced(true)
@@ -119,7 +128,9 @@ function HomeDoc() {
         doc={handle.doc}
         docId={room}
         initialAnchor={initialAnchor.current}
+        onAnchorChange={presence?.publishCamera}
       />
+      {presence && <PresenceBar doc={handle.doc} presence={presence} />}
     </div>
   )
 }
