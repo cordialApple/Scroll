@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { Pool } from 'pg'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { HocuspocusProviderWebsocket } from '@hocuspocus/provider'
 import type { Hocuspocus } from '@hocuspocus/server'
 import { startScrollServer } from '../../server/hocuspocus'
 import { createPostgresStore } from '../../server/db/store'
@@ -58,12 +59,19 @@ async function storeText(room: string): Promise<string[]> {
 }
 
 const peers: HeadlessPeer[] = []
+const extraSockets: HocuspocusProviderWebsocket[] = []
 let server: Hocuspocus | null = null
 
-function peer(room: string, url: string, token: string, WebSocketPolyfill: typeof WebSocket = WebSocket): HeadlessPeer {
-  const p = createHeadlessPeer({ room, url, token, WebSocketPolyfill, minDelayMs: 50, maxDelayMs: 200, proposalTimeoutMs: 4000 })
+function track(p: HeadlessPeer): HeadlessPeer {
   peers.push(p)
   return p
+}
+
+// proposalTimeoutMs is left at the harness default (well above waitFor's budget and vitest's per-test
+// timeout), so a slow-but-successful commit under Postgres contention is never preempted by the peer's
+// own timeout — the test's own waits stay the limiting factor.
+function peer(room: string, url: string, token: string, WebSocketPolyfill: typeof WebSocket = WebSocket): HeadlessPeer {
+  return track(createHeadlessPeer({ room, url, token, WebSocketPolyfill, minDelayMs: 50, maxDelayMs: 200 }))
 }
 
 function tok(room: string, sub: string, caps: string[]): string {
@@ -78,6 +86,7 @@ async function boot(guard?: ProposalGuard): Promise<string> {
 
 afterEach(async () => {
   for (const p of peers.splice(0)) p.destroy()
+  for (const s of extraSockets.splice(0)) s.destroy()
   if (server) {
     await server.destroy()
     server = null
@@ -107,16 +116,20 @@ describe('P4.4 native headless-peer harness (first propose/commit consumer)', ()
     const url = await boot(() => ({ ok: false, reason: 'guard: target inside a live camera band' }))
     const closes: { code: number }[] = []
     const proposer = peer(room, url, tok(room, 'agent-p', [CAP_PROPOSE]), recordingPolyfill(closes))
-    await proposer.whenReady
+    const reader = peer(room, url, tok(room, 'agent-r', []))
+    await Promise.all([proposer.whenReady, reader.whenReady])
 
     const outcome = await proposer.propose((fork) => appendBlock(fork, 'paragraph', 'should never land'))
     expect(outcome.committed).toBe(false)
     expect(outcome.reason).toContain('camera band')
 
     // THE never-self-apply proof: the peer authored the mutation on a fork and only proposed it, so its
-    // own doc is empty even after the refusal. A self-applying peer would have forked here (F-04).
+    // own doc is empty even after the refusal — and a concurrently-synced reader never sees a transient
+    // echo either, which an apply-then-revert-within-the-roundtrip regression would leak. A self-applying
+    // peer would have forked here (F-04).
     await new Promise((res) => setTimeout(res, 200))
     expect(proposer.snapshot().some((v) => v.text === 'should never land')).toBe(false)
+    expect(reader.snapshot().some((v) => v.text === 'should never land')).toBe(false)
     expect(closes).toEqual([])
     expect(proposer.provider.isAuthenticated).toBe(true)
     expect(await storeText(room)).not.toContain('should never land')
@@ -167,6 +180,26 @@ describe('P4.4 native headless-peer harness (first propose/commit consumer)', ()
     await waitFor(() => observer.cameras().some((c) => c.raw.blockId === blockId))
   })
 
+  it('an injected socket survives one peer destroy: a sibling sharing it keeps working (caller owns lifecycle)', async () => {
+    const base = await freePort()
+    const url = await boot()
+    const roomA = `hp-shareA-${base}`
+    const roomB = `hp-shareB-${base}`
+    const shared = new HocuspocusProviderWebsocket({ url, WebSocketPolyfill: WebSocket, minDelay: 50, maxDelay: 200 })
+    extraSockets.push(shared)
+
+    const a = track(createHeadlessPeer({ room: roomA, token: tok(roomA, 'a', [CAP_PROPOSE]), websocketProvider: shared }))
+    const b = track(createHeadlessPeer({ room: roomB, token: tok(roomB, 'b', [CAP_PROPOSE]), websocketProvider: shared }))
+    await Promise.all([a.whenReady, b.whenReady])
+
+    a.destroy()
+    // preserveConnection defers to the caller for an injected socket: destroying `a` must not disconnect
+    // the shared transport, so `b` still commits over it.
+    expect(shared.shouldConnect).toBe(true)
+    expect((await b.propose((fork) => appendBlock(fork, 'paragraph', 'after sibling destroy'))).committed).toBe(true)
+    await waitFor(() => b.snapshot().some((v) => v.text === 'after sibling destroy'))
+  })
+
   it('destroy settles every in-flight proposal and tears down the socket', async () => {
     // Point at a dead port: whenReady never resolves, so the proposal registers but is never sent.
     const dead = await freePort()
@@ -177,6 +210,9 @@ describe('P4.4 native headless-peer harness (first propose/commit consumer)', ()
     p.destroy()
 
     expect(await inflight).toEqual({ committed: false, reason: 'peer destroyed' })
+    // whenReady must also settle on destroy — a peer that never synced would otherwise hang any caller
+    // awaiting it. (Timing out this await is the failure signal if destroy stops settling it.)
+    await p.whenReady
     expect(p.provider.configuration.websocketProvider.shouldConnect).toBe(false)
   })
 })

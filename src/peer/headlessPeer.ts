@@ -67,12 +67,16 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
       })
   const socket = opts.websocketProvider ?? ownedSocket!
 
+  // preserveConnection governs whether provider.destroy() also disconnects the socket. When we own the
+  // socket, we want it closed (false). When the caller injected one — a socket it may share across peers
+  // — destroying THIS peer must not tear down everyone else's connection, so leave the socket alone (true)
+  // and let the caller own its lifecycle.
   const provider = new HocuspocusProvider({
     websocketProvider: socket,
     name: opts.room,
     document: doc,
     token: opts.token,
-    preserveConnection: false,
+    preserveConnection: ownedSocket === null,
   })
 
   const presence: Presence | null = provider.awareness
@@ -81,8 +85,12 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
 
   // whenReady gates on `synced`, not on `authenticated`: Hocuspocus runs onAuthenticate BEFORE the sync
   // step, so a synced connection is already an authenticated one — and gating on synced alone avoids a
-  // hang against a server that runs no authenticator (authenticated would never flip).
+  // hang against a server that runs no authenticator (authenticated would never flip). destroy() also
+  // settles it, so a caller awaiting whenReady against a shutdown (or a peer that never connected) is
+  // released instead of hanging forever.
+  let markReady!: () => void
   const whenReady = new Promise<void>((resolve) => {
+    markReady = resolve
     const check = () => {
       if (provider.synced) resolve()
     }
@@ -92,10 +100,11 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
 
   const pending = new Map<string, Pending>()
   let seq = 0
+  let destroyed = false
 
   const onStateless = ({ payload }: { payload: string }) => {
     const r = parseProposalResult(payload)
-    if (!r) return // foreign stateless (awareness, another peer's proposal frame): not ours, ignore
+    if (!r) return // foreign stateless (Hocuspocus history-versioning {action} commands): not ours, ignore
     const entry = pending.get(r.id)
     if (!entry) return // foreign or already-settled result id: never throw on unknown correlation
     pending.delete(r.id)
@@ -105,6 +114,7 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
   provider.on('stateless', onStateless)
 
   const proposeUpdate = (update: Uint8Array): Promise<ProposalOutcome> => {
+    if (destroyed) return Promise.resolve({ committed: false, reason: 'peer destroyed' })
     const id = `${doc.clientID}:${seq++}`
     return new Promise<ProposalOutcome>((resolve) => {
       const timer = setTimeout(() => {
@@ -131,19 +141,31 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
     return proposeUpdate(Y.encodeStateAsUpdate(fork, before))
   }
 
+  // Own the observeDeep unsubscribers so destroy() can release any a caller forgot — the doc may be
+  // caller-supplied and outlive this peer, so a dangling handler is a real leak on a long-lived doc.
+  const unobservers = new Set<() => void>()
   const observeText = (cb: (views: BlockView[]) => void): (() => void) => {
     const handler = () => cb(blockViews(doc))
     const arr = blocks(doc)
     arr.observeDeep(handler)
-    return () => arr.unobserveDeep(handler)
+    const off = () => {
+      if (!unobservers.delete(off)) return
+      arr.unobserveDeep(handler)
+    }
+    unobservers.add(off)
+    return off
   }
 
   const destroy = () => {
+    if (destroyed) return
+    destroyed = true
     for (const e of pending.values()) {
       clearTimeout(e.timer)
       e.resolve({ committed: false, reason: 'peer destroyed' })
     }
     pending.clear()
+    for (const off of [...unobservers]) off()
+    markReady()
     provider.off('stateless', onStateless)
     presence?.destroy()
     // Tearing down a socket that never finished connecting (server unreachable): ws emits a deferred
