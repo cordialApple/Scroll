@@ -1,6 +1,6 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-25 · branch: main · session: Scroll P3.3 awareness (presence) landed — P3 now 3/6_
+_Last updated: 2026-07-25 · branch: main · session: Scroll P3.3 awareness (presence) landed + merged — P3 now 3/6; P3.4 infra fork open_
 
 ## 1. What changed this session
 - **P3.3 (#32, merged `47c84e2` via PR #38)** — peer **awareness/presence**. New `src/doc/awareness.ts`: pure `resolveRemoteCamera` (redirect-aware) + `createPresence` — throttled publish (leading+trailing, injectable `Clock` seam), self-filtered `remotes()`, `setLocalState(null)` ghost-clear on `destroy()`, `isAnchor`/`isUser` guards on remote state. New `src/chrome/PresenceBar.tsx` (collaborator overlay; re-renders on awareness change AND doc mutation so resolved anchors stay fresh). New `src/doc/presenceUser.ts` (per-tab name+color). `src/App.tsx` wires editor `onAnchorChange` → publish + renders the bar when a network provider exists (offline ⇒ presence null, no crash).
@@ -25,4 +25,7 @@ _Last updated: 2026-07-25 · branch: main · session: Scroll P3.3 awareness (pre
 - Program status board (single source of truth): https://claude.ai/code/artifact/594fb42d-ae43-44e9-b903-acc5d33e9de2
 
 ## 5. Next step
-Decide **Postgres-in-CI for P3.4 (#33)** — the only fork gating the durability track (persist-before-broadcast). Once decided, implement P3.4: a synchronous `beforeHandleMessage` ingress seam that persists each update to Postgres *before* it broadcasts, with red/green teeth proving a crash between persist-and-broadcast loses nothing. (P3.5 epoch fence then chains off it; P3.6 provider-chaos PBT gates the whole track.)
+**Awaiting user's P3.4 (#33) infra decision** — the persistence-in-CI fork, surfaced with a recommendation:
+- **(A, recommended) embedded/SQLite store behind the `beforeHandleMessage` seam** — CI stays dependency-free; the persist-before-broadcast *guarantee* + teeth are identical, real Postgres deferred to P4/deploy. The localhost "agent-as-user" milestone needs the ordering guarantee, not a specific engine.
+- **(B) Postgres service container in Scroll CI** — truest to prod, adds a service + migration to the CI job.
+Once the user picks, implement P3.4: a synchronous `beforeHandleMessage` ingress seam that persists each update *before* it broadcasts, with red/green teeth proving a crash between persist-and-broadcast loses nothing. Then P3.5 (epoch fence) chains off it; P3.6 (provider-chaos PBT) gates the whole track. User may instead redirect to a different stage.
