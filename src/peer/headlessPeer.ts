@@ -3,7 +3,7 @@ import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/pro
 import { encodeProposal, parseProposalResult } from '../../server/db/proposeCommit'
 import { createPresence, type Presence, type PresenceOptions, type RemoteCamera } from '../doc/awareness'
 import type { Anchor } from '../layout/layout'
-import { blockViews, createDoc, type BlockView } from '../doc/model'
+import { blocks, blockViews, createDoc, type BlockView } from '../doc/model'
 
 export interface ProposalOutcome {
   committed: boolean
@@ -133,13 +133,13 @@ export function createHeadlessPeer(opts: HeadlessPeerOptions): HeadlessPeer {
 
   const observeText = (cb: (views: BlockView[]) => void): (() => void) => {
     const handler = () => cb(blockViews(doc))
-    const arr = doc.getArray('blocks')
+    const arr = blocks(doc)
     arr.observeDeep(handler)
     return () => arr.unobserveDeep(handler)
   }
 
   const destroy = () => {
-    for (const [, e] of pending) {
+    for (const e of pending.values()) {
       clearTimeout(e.timer)
       e.resolve({ committed: false, reason: 'peer destroyed' })
     }
