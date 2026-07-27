@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { BlockView } from '../doc/model'
 import { getCaretOffset, caretAtStart } from './caret'
 
@@ -12,7 +12,11 @@ interface Props {
 export function Block({ view, onEdit, onSplit, onMerge }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  // Pre-paint (useLayoutEffect), not passive: a non-focused block's programmatic grow must land in the
+  // DOM before the Editor's own useLayoutEffect measures it. Child layout effects run before the parent's,
+  // so the anchor is already displaced at measure time and the hold-camera correction compensates. A
+  // passive effect syncs after paint — an above-camera grow is then measured stale and the camera drifts.
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     if (document.activeElement === el) return
@@ -28,6 +32,13 @@ export function Block({ view, onEdit, onSplit, onMerge }: Props) {
       suppressContentEditableWarning
       spellCheck={false}
       onInput={(e) => onEdit(view.id, (e.currentTarget as HTMLElement).innerText)}
+      onBlur={(e) => {
+        // The layout-effect sync above skips a focused block, so a programmatic text change to
+        // the block the caret is in — e.g. the first half of a split, still focused when the sync runs —
+        // never reaches the DOM until it blurs. Reconcile here so focus leaving lands the pending text.
+        const el = e.currentTarget as HTMLElement
+        if (el.innerText !== view.text) el.innerText = view.text
+      }}
       onKeyDown={(e) => {
         const el = e.currentTarget as HTMLElement
         if (e.key === 'Enter' && !e.shiftKey) {
