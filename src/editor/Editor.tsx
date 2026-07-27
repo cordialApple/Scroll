@@ -12,14 +12,15 @@ import {
 import type * as Y from 'yjs'
 import {
   blocks,
-  blockId,
-  blockType,
   blockText,
+  blockViewOf,
   resolveBlockIndex,
   redirectSource,
   setBlockText,
+  setBlockAuthor,
   splitBlock,
   mergeIntoPrevious,
+  AUTHOR_HUMAN,
   type BlockView,
 } from '../doc/model'
 import { resolveEffectiveAnchor } from '../doc/anchor'
@@ -133,7 +134,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     const out: BlockView[] = []
     for (let i = renderWindow.start; i < renderWindow.end; i++) {
       const m = arr.get(i)
-      if (m) out.push({ id: blockId(m), type: blockType(m), text: blockText(m).toString() })
+      if (m) out.push(blockViewOf(m))
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,11 +286,18 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   // O(log n) at-hint from the live index avoids indexOfBlock's O(n) scan on every keystroke/split/merge;
   // resolveBlockIndex re-verifies it, so a stale hint is corrected, never trusted blind.
   const hintOf = useCallback((id: string) => modelRef.current?.ix.indexOf(id), [])
-  const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text, hintOf(id)), [doc, hintOf])
+  const onEdit = useCallback(
+    (id: string, text: string) => setBlockText(doc, id, text, hintOf(id), AUTHOR_HUMAN),
+    [doc, hintOf],
+  )
   const onSplit = useCallback(
     (id: string, caret: number) => {
-      const next = splitBlock(doc, id, caret, hintOf(id))
-      if (next) pendingFocusRef.current = { blockId: next, caret: 0 }
+      const hint = hintOf(id)
+      const next = splitBlock(doc, id, caret, hint)
+      if (next) {
+        setBlockAuthor(doc, id, AUTHOR_HUMAN, hint)
+        pendingFocusRef.current = { blockId: next, caret: 0 }
+      }
     },
     [doc, hintOf],
   )
@@ -298,7 +306,10 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       const idx = resolveBlockIndex(doc, id, hintOf(id))
       const prevLen = idx > 0 ? blockText(blocks(doc).get(idx - 1)).length : 0
       const prevId = mergeIntoPrevious(doc, id, idx)
-      if (prevId) pendingFocusRef.current = { blockId: prevId, caret: prevLen }
+      if (prevId) {
+        setBlockAuthor(doc, prevId, AUTHOR_HUMAN, idx - 1)
+        pendingFocusRef.current = { blockId: prevId, caret: prevLen }
+      }
     },
     [doc, hintOf],
   )

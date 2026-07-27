@@ -28,6 +28,7 @@ export function Block({ view, onEdit, onSplit, onMerge }: Props) {
       ref={ref}
       className={`block block-${view.type}`}
       data-block-id={view.id}
+      data-author={view.author}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}

@@ -263,6 +263,21 @@
   margin: 12px 0 6px;
   color: var(--on-surface);
 }
+/* provenance: agent-authored change-bar in the sheet's left gutter. Absolutely positioned so it adds ZERO
+   layout — no reflow beneath the reader (the P6.1 invariant); a padding/border on .block would shift text. */
+.block[data-author='agent'] {
+  position: relative;
+}
+.block[data-author='agent']::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--agent-marker);
+}
 .block-quote {
   font-size: 15px;
   line-height: 1.5;

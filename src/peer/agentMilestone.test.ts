@@ -7,7 +7,7 @@ import type { Hocuspocus } from '@hocuspocus/server'
 import { startScrollServer } from '../../server/hocuspocus'
 import { createPostgresStore } from '../../server/db/store'
 import { CAP_PROPOSE, createPeerAuthenticator, mintPeerToken } from '../../server/auth/peerToken'
-import { appendBlock, blockViews, createDoc, setBlockText } from '../doc/model'
+import { AUTHOR_AGENT, appendBlock, blockViews, createDoc, setBlockText, type BlockView } from '../doc/model'
 import { runAttentionAgent, type AgentRunner } from '../agent/attentionAgent'
 import { createHeadlessPeer, type HeadlessPeer } from './headlessPeer'
 
@@ -50,12 +50,12 @@ function peer(room: string, url: string, sub: string): HeadlessPeer {
 
 // Read the room back from Postgres (snapshot + replayed update-log) to prove a commit is durable, not just
 // broadcast.
-async function storeText(room: string): Promise<string[]> {
+async function storeViews(room: string): Promise<BlockView[]> {
   const loaded = await createPostgresStore(pool).loadDocument(room)
   const replay = createDoc()
   if (loaded.snapshot) Y.applyUpdate(replay, loaded.snapshot)
   for (const u of loaded.updates) Y.applyUpdate(replay, u)
-  return blockViews(replay).map((v) => v.text)
+  return blockViews(replay)
 }
 
 afterEach(async () => {
@@ -156,10 +156,14 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
     expect(direct.committed).toBe(false)
 
     // Durability: read the room back from Postgres. Every band block survived byte-for-byte; a COLD agent edit
-    // landed (an `[agent]` tag on a non-band block).
-    const persisted = await storeText(room)
+    // landed (an `[agent]` tag on a non-band block); and provenance persisted with it — a COLD block carries
+    // author='agent', while the human's band was never written so it carries no authorship at all.
+    const persistedViews = await storeViews(room)
+    const persisted = persistedViews.map((v) => v.text)
     for (let i = BAND_LO; i <= BAND_HI; i++) expect(persisted[i]).toBe(`L${i} original`)
     expect(order.some((id, i) => !bandIds.has(id) && persisted[i].includes('[agent]'))).toBe(true)
+    expect(persistedViews.some((v) => !bandIds.has(v.id) && v.author === AUTHOR_AGENT)).toBe(true)
+    for (let i = BAND_LO; i <= BAND_HI; i++) expect(persistedViews[i].author).toBeUndefined()
 
     // SUSPENDERS, the check-then-act race the commit-time guard exists for: build a diff against a block that
     // is COLD right now, THEN a reader enters it, THEN submit the pre-built diff. The authority re-derives the
