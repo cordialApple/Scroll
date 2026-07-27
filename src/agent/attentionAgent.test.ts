@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import * as Y from 'yjs'
 import { createDoc, appendBlock, blockViews } from '../doc/model'
 import type { HeadlessPeer, ProposalOutcome } from '../peer/headlessPeer'
 import type { RemoteCamera } from '../doc/awareness'
-import { createAttentionAgent, normalizeWhitespaceActor, runAttentionAgent, type TickResult } from './attentionAgent'
+import { createAttentionAgent, normalizeWhitespaceActor, runAttentionAgent, type AgentRunner, type TickResult } from './attentionAgent'
 
 function makeDoc(n: number): { doc: Y.Doc; ids: string[] } {
   const doc = createDoc()
@@ -30,25 +30,37 @@ async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
+// Any runner a test starts is registered here and stopped in afterEach, so a thrown assertion (e.g. a waitFor
+// timeout) can't leak a self-rescheduling timer into the rest of the process — the sibling agentMilestone.test
+// does the same. Tests still call stop() explicitly where stop() itself is under test.
+const activeRunners: AgentRunner[] = []
+afterEach(() => {
+  for (const r of activeRunners.splice(0)) r.stop()
+})
+
 interface FakeOpts {
   cameras?: RemoteCamera[]
   awareness?: boolean
   respond?: () => ProposalOutcome
+  // When set, propose resolves after this delay (macrotask) instead of immediately — lets a test call stop()
+  // WHILE a tick is awaiting propose, which is the only way to exercise the loop's post-await guards.
+  deferMs?: number
 }
 function fakePeer(doc: Y.Doc, opts: FakeOpts = {}): { peer: HeadlessPeer; proposeCount: () => number } {
   let count = 0
   const peer = {
     provider: { document: doc, awareness: (opts.awareness ?? true) ? {} : null },
     cameras: () => opts.cameras ?? [],
-    // Sync arrow returning a resolved Promise — mirrors headlessPeer.propose exactly: mutate runs
-    // synchronously, so a throwing actor throws SYNCHRONOUSLY (not as a rejection), which is what makes the
-    // driver's finally-advances-the-LRU tooth exercise the real production failure mode.
+    // Sync arrow that runs mutate synchronously before returning its Promise — mirrors headlessPeer.propose
+    // exactly, so a throwing actor throws SYNCHRONOUSLY (not as a rejection), exercising the real production
+    // failure mode. deferMs only delays the RESOLUTION, never the synchronous mutate.
     propose: (mutate: (fork: Y.Doc) => void) => {
       count++
       const fork = createDoc()
       Y.applyUpdate(fork, Y.encodeStateAsUpdate(doc))
       mutate(fork)
-      return Promise.resolve(opts.respond ? opts.respond() : { committed: true })
+      const outcome = opts.respond ? opts.respond() : { committed: true }
+      return opts.deferMs ? new Promise<ProposalOutcome>((r) => setTimeout(() => r(outcome), opts.deferMs)) : Promise.resolve(outcome)
     },
   }
   return { peer: peer as unknown as HeadlessPeer, proposeCount: () => count }
@@ -58,12 +70,16 @@ describe('createAttentionAgent — the native attention-anchored driver (P6.5, #
   it('proposes a cold target — outside every live reader band — and hands that id to the actor', async () => {
     const { doc, ids } = makeDoc(30)
     const seen: string[] = []
-    const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
+    // Camera at index 0 (band [0, 0+(4-1)+4] = [0, 7]). Deliberate: if resolveCameras mis-resolved and the
+    // agent saw NO camera, coldBlocks would return the whole doc and selectNext would pick ids[0] (cold[0]) —
+    // which is INSIDE this band, failing the assertion. A mid-doc camera would let that bug pass (ids[0] is
+    // outside a mid-doc band), so this placement gives the "target is cold" assertion teeth.
+    const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[0])] })
     const agent = createAttentionAgent(peer, { actor: (_f, t) => void seen.push(t), now: () => 1000 })
     const r = await agent.tick()
     expect(r.proposed).toBe(true)
     expect(proposeCount()).toBe(1)
-    const band = new Set(ids.slice(11, 23)) // index 15, default band [11, 22]
+    const band = new Set(ids.slice(0, 8))
     expect(band.has(r.targetId!)).toBe(false)
     expect(seen).toEqual([r.targetId])
   })
@@ -138,11 +154,12 @@ describe('createAttentionAgent — the native attention-anchored driver (P6.5, #
 })
 
 describe('runAttentionAgent — the driving loop + lifecycle (P6.6, #70)', () => {
-  it('loops ticks until stop(), then quiesces (no ticks after stop)', async () => {
+  it('loops ticks and stop() halts further onTick', async () => {
     const { doc, ids } = makeDoc(30)
     const { peer } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
     const results: TickResult[] = []
     const runner = runAttentionAgent(peer, { intervalMs: 5, now: monotonic(), onTick: (r) => results.push(r) })
+    activeRunners.push(runner)
     await waitFor(() => results.length >= 3)
     runner.stop()
     const atStop = results.length
@@ -151,11 +168,30 @@ describe('runAttentionAgent — the driving loop + lifecycle (P6.6, #70)', () =>
     expect(results.some((r) => r.proposed)).toBe(true)
   })
 
+  // The reschedule guard has teeth only when stop() lands WHILE a tick is awaiting propose (deferMs) — with an
+  // instant propose no runOnce ever spans the stop() macrotask, so clearTimeout alone would end the loop and
+  // a dropped `if (running)` reschedule guard would go undetected. proposeCount stability distinguishes "loop
+  // halted" from "loop still rescheduling with onTick merely gated"; results-empty covers the onTick guard.
+  it('stop() during an in-flight tick reschedules nothing and emits nothing (both post-await guards)', async () => {
+    const { doc, ids } = makeDoc(30)
+    const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])], deferMs: 25 })
+    const results: TickResult[] = []
+    const runner = runAttentionAgent(peer, { intervalMs: 0, now: monotonic(), onTick: (r) => results.push(r) })
+    activeRunners.push(runner)
+    await waitFor(() => proposeCount() >= 1)
+    runner.stop()
+    const atStop = proposeCount()
+    await new Promise((r) => setTimeout(r, 70))
+    expect(results.length).toBe(0)
+    expect(proposeCount()).toBe(atStop)
+  })
+
   it('stop() before the first scheduled tick fires does no work', async () => {
     const { doc, ids } = makeDoc(30)
     const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
     const results: TickResult[] = []
     const runner = runAttentionAgent(peer, { intervalMs: 5, now: monotonic(), onTick: (r) => results.push(r) })
+    activeRunners.push(runner)
     runner.stop()
     await new Promise((r) => setTimeout(r, 30))
     expect(results.length).toBe(0)

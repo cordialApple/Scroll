@@ -149,4 +149,18 @@ describe('createSpatialProposalGuard — commit-time spatial enforcement (P6.3)'
     const update = proposal(doc, (f) => setBlockText(f, ids[20], 'edit in the reconnect gap'))
     expect(decide(doc, update, emptyAwareness(doc), createSpatialProposalGuard(), 0).commit).toBe(false)
   })
+
+  // F-06 (carry-forward #63): the guard folds EVERY published camera into the guarded set with no proposer
+  // self-exclusion. In the agent-as-user direction (the agent publishes its OWN camera), the authority would
+  // guard the agent's band against the agent itself — a peer frozen out of its own viewport. Excluding the
+  // proposer needs a signature change: ProposalGuardCtx.peer carries no clientId correlating to awareness
+  // keys, so liveCameras cannot today tell the proposer's camera from a reader's. SKIP: models the proposer's
+  // own camera as the sole published one and asserts the post-fix behaviour (a self-band edit commits);
+  // un-skipped it FAILS today (the guard refuses, guarding the proposer against itself).
+  it.skip("P6.3 (#63): excludes the proposer's own camera (an agent editing within its own viewport commits)", () => {
+    const { doc, ids } = seed(40)
+    const ownCamera = awarenessWithCamera(doc, ids[20]) // the proposer's OWN camera — post-fix: self-excluded
+    const update = proposal(doc, (f) => setBlockText(f, ids[22], 'agent edits within its own band'))
+    expect(decide(doc, update, ownCamera, createSpatialProposalGuard()).commit).toBe(true)
+  })
 })

@@ -59,6 +59,11 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
     ticking = true
     try {
       return await runTick()
+    } catch (err) {
+      // Fail closed to an idle result rather than rejecting. runTick's pre-propose reads (blockOrder /
+      // resolveCameras / observe) aren't individually guarded, and a long-running loop must never have tick()
+      // reject out from under it. The error stays visible to the caller through the returned reason (→ onTick).
+      return { targetId: null, proposed: false, reason: `tick error: ${String(err)}` }
     } finally {
       ticking = false
     }
@@ -109,9 +114,10 @@ export interface RunAttentionAgentOptions extends AttentionAgentOptions {
 
 // Drive an AttentionAgent on a fixed cadence until stop(). Each tick fully settles before the next is
 // scheduled (setTimeout AFTER the await, not setInterval), so a slow propose round-trip can't let ticks pile
-// up and overlap; tick()'s single-flight guard is the backstop. tick() never rejects (it catches actor
-// throws), but the loop swallows anything regardless so one bad round can't kill it. onTick observes each
-// result — the milestone e2e watches cold commits land through it.
+// up and overlap; tick()'s single-flight guard is the backstop. tick() is contracted never to reject (it
+// fail-closes every throw to an idle result), so onTick sees every outcome; the loop still swallows anything
+// regardless — including a throwing onTick — so one bad round can't kill it. The milestone e2e watches cold
+// commits land through onTick.
 export function runAttentionAgent(peer: HeadlessPeer, opts: RunAttentionAgentOptions = {}): AgentRunner {
   const agent = createAttentionAgent(peer, opts)
   const intervalMs = opts.intervalMs ?? 1000
@@ -123,7 +129,8 @@ export function runAttentionAgent(peer: HeadlessPeer, opts: RunAttentionAgentOpt
       const result = await agent.tick()
       if (running) opts.onTick?.(result)
     } catch {
-      // unreachable in practice (tick() catches actor throws) — but a runner must never die on a rejection
+      // Belt: tick() is contracted never to reject, so this is unreachable for tick itself — but it also
+      // absorbs a throwing onTick (a caller bug) so the loop survives it instead of dying silently.
     } finally {
       if (running) timer = setTimeout(runOnce, intervalMs)
     }

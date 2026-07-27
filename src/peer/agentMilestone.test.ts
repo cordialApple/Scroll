@@ -25,7 +25,7 @@ function freePort(): Promise<number> {
   })
 }
 
-async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
+async function waitFor(pred: () => boolean, timeoutMs = 15_000): Promise<void> {
   const start = Date.now()
   while (!pred()) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out')
@@ -73,12 +73,17 @@ afterAll(async () => {
 
 // P6 milestone: the native attention-anchored agent reorganizes COLD regions of a live shared doc while a
 // human reader's camera is published, and the spatial guard ENFORCES end-to-end over a real server + Postgres.
-// This is the first test with a live proposer AND a live camera — it de-latents everything P6.2-6.5 built
-// (before this, no test published a camera, so the guard guarded nothing). BELT: the agent commits only cold
-// blocks. SUSPENDERS: a write straight into the human's band is refused by the authority regardless of the
-// proposer's good behavior. Durable: the human's band content survives in Postgres, agent edits land.
+// First test with a live proposer AND a live camera — de-latents everything P6.2-6.5 built (before this, no
+// test published a camera, so the guard guarded nothing).
+//   BELT: the agent never PROPOSES a block inside the human's band. Proven by driving it through the WHOLE cold
+//   set — a belt blind to the reader would, to commit every cold block, first propose band blocks along the way
+//   (caught in `proposed`). Asserting only over `committed` is blind here: the suspenders refuses band writes,
+//   so a broken belt's band proposals never land and committed-are-cold stays true regardless of the belt.
+//   SUSPENDERS: a band write is refused op-grain by the authority — both a statically in-band write and the
+//   check-then-act race (a block cold at read-time that a reader enters before the commit lands).
+//   Durable: the human's band survives byte-for-byte in Postgres; a cold agent edit lands.
 describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enforces live', () => {
-  it('agent commits ONLY cold blocks; a band write is refused; the human band is invariant and durable', async () => {
+  it('agent never proposes into the band; band writes are refused; the band is invariant and durable', async () => {
     const N = 30
     const CAM = 15
     // Default band around index 15 = [15-4, 15+(4-1)+4] = [11, 22]. The agent and the authority share the
@@ -105,13 +110,15 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
     const order = human.snapshot().map((v) => v.id)
     const cameraId = order[CAM]
     const bandIds = new Set(order.slice(BAND_LO, BAND_HI + 1))
+    const coldCount = N - bandIds.size // 18
 
     // The human publishes a camera — THIS is what arms the guard (a room with no cameras guards nothing).
     human.lookAt({ blockId: cameraId, offset: 0 })
     // The agent must SEE the human camera via awareness before its observer can treat that band as guarded.
     await waitFor(() => agent.cameras().some((c) => c.raw.blockId === cameraId))
 
-    // Drive the agent with a deterministic marker actor (append a tag once). Collect every committed target.
+    // Drive the agent with a deterministic marker actor (append a tag once). Collect PROPOSED and COMMITTED.
+    const proposed: string[] = []
     const committed: string[] = []
     runners.push(
       runAttentionAgent(agent, {
@@ -121,16 +128,21 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
           if (v && !v.text.includes('[agent]')) setBlockText(fork, target, `${v.text} [agent]`)
         },
         onTick: (r) => {
+          if (r.proposed && r.targetId) proposed.push(r.targetId)
           if (r.committed && r.targetId) committed.push(r.targetId)
         },
       }),
     )
-    // Let the agent work several DISTINCT cold blocks (the LRU rotates through them).
-    await waitFor(() => new Set(committed).size >= 5)
+    // Drive through the WHOLE cold set (the LRU visits each cold block once before repeating). A belt blind to
+    // the reader would, on its way to committing all 18 cold blocks, PROPOSE band blocks 11-22 (refused) — that
+    // is exactly what the belt assertion below catches. Waiting for only 5 commits never rotated past the cold
+    // blocks that precede the band, so a disabled belt was behaviorally invisible.
+    await waitFor(() => new Set(committed).size >= coldCount)
     runners.splice(0).forEach((r) => r.stop())
 
-    // BELT + SUSPENDERS, live: every committed target was COLD (outside the band). The authority is the
-    // backstop — `committed` cannot contain a band block even if the agent's selection had raced awareness.
+    // BELT: the agent NEVER proposed a block inside the human's band (not merely "never committed one").
+    for (const id of proposed) expect(bandIds.has(id)).toBe(false)
+    // SUSPENDERS backstop: nothing in the band ever committed either.
     for (const id of committed) expect(bandIds.has(id)).toBe(false)
 
     // The human's whole band is byte-for-byte pristine after all that agent activity above and below it.
@@ -138,14 +150,30 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
       if (bandIds.has(v.id)) expect(v.text).toBe(`L${order.indexOf(v.id)} original`)
     }
 
-    // SUSPENDERS, directly: a proposal straight into the camera block — bypassing the agent's cold-selection
-    // — is refused op-grain by the authority. The guard, not the agent's manners, is the enforcement.
+    // SUSPENDERS, static: a proposal straight into the camera block — bypassing the agent's cold-selection —
+    // is refused op-grain by the authority. The guard, not the agent's manners, is the enforcement.
     const direct = await agent.propose((fork) => setBlockText(fork, cameraId, 'SHOULD BE REFUSED'))
     expect(direct.committed).toBe(false)
 
-    // Durability: read the room back from Postgres. The camera block survived; at least one cold edit landed.
+    // Durability: read the room back from Postgres. Every band block survived byte-for-byte; a COLD agent edit
+    // landed (an `[agent]` tag on a non-band block).
     const persisted = await storeText(room)
-    expect(persisted[CAM]).toBe(`L${CAM} original`)
-    expect(persisted.some((t) => t.includes('[agent]'))).toBe(true)
+    for (let i = BAND_LO; i <= BAND_HI; i++) expect(persisted[i]).toBe(`L${i} original`)
+    expect(order.some((id, i) => !bandIds.has(id) && persisted[i].includes('[agent]'))).toBe(true)
+
+    // SUSPENDERS, the check-then-act race the commit-time guard exists for: build a diff against a block that
+    // is COLD right now, THEN a reader enters it, THEN submit the pre-built diff. The authority re-derives the
+    // guarded set from CURRENT awareness at commit, so it refuses — enforcement never trusts the proposer's
+    // read-time view. Strictly stronger than the static write above (that block was already in-band at build).
+    const raceId = order[0]
+    const fork = createDoc()
+    Y.applyUpdate(fork, Y.encodeStateAsUpdate(agent.provider.document))
+    const before = Y.encodeStateVector(fork)
+    setBlockText(fork, raceId, 'raced in')
+    const raceUpdate = Y.encodeStateAsUpdate(fork, before)
+    human.lookAt({ blockId: raceId, offset: 0 }) // the reader moves onto the block AFTER the diff was built
+    await waitFor(() => agent.cameras().some((c) => c.raw.blockId === raceId))
+    const raced = await agent.proposeUpdate(raceUpdate)
+    expect(raced.committed).toBe(false)
   })
 })
