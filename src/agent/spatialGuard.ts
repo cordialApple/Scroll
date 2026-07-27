@@ -22,6 +22,13 @@ function resolveConfig(c?: Partial<GuardConfig>): GuardConfig {
   }
 }
 
+// The single resolved grace source. The agent observer folds cameras with trackCameras BEFORE guardedBlocks
+// re-derives its own config, so both must read one formula — a divergence would prune a still-guarded camera
+// early. Exported so the observer never re-implements the clamp inline.
+export function resolveGraceMs(config?: Partial<GuardConfig>): number {
+  return resolveConfig(config).graceMs
+}
+
 // The camera anchor is the viewport TOP (layout: scrollTop = anchorOffsetTop + offset), so the visible
 // span runs DOWNWARD from it. The guarded band is therefore asymmetric — `buffer` blocks of scroll
 // headroom above, then the `visibleBlocks` on screen, then `buffer` blocks below — not ±buffer about a
