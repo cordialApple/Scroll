@@ -175,5 +175,8 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
     await waitFor(() => agent.cameras().some((c) => c.raw.blockId === raceId))
     const raced = await agent.proposeUpdate(raceUpdate)
     expect(raced.committed).toBe(false)
-  })
+    // 30s: this drives the agent through the WHOLE cold set over a real server+ws+Postgres. A future belt
+    // regression makes `waitFor(committed>=coldCount)` slower (band proposals refused, wasted ticks); the
+    // headroom lets the belt ASSERTION fire cleanly instead of an opaque vitest-timeout kill.
+  }, 30_000)
 })
