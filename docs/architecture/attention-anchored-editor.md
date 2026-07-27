@@ -15,8 +15,12 @@ changes beneath you.
 
 ## Two gates, different jobs
 
-- **The spatial guard is correctness.** Within plus-or-minus 4 blocks of any camera, content is
-  untouchable. No clock is involved. The guard is evaluated by the room authority at **commit time**
+- **The spatial guard is correctness.** A camera's whole residency band is untouchable: the on-screen
+  span plus a 4-block scroll buffer on each side. Because the published camera anchor is the viewport
+  **top** (`scrollTop = anchorOffsetTop + offset`), the visible span runs *downward* from the anchor, so
+  the band is asymmetric — 4 buffer blocks above, then the visible blocks, then 4 below — not ±4 about a
+  point. (First cut: a fixed visible-block count; the height-aware / velocity-weighted extent is the
+  refinement — see Sizing.) No clock is involved. The guard is evaluated by the room authority at **commit time**
   (the propose/commit capability in [distributed-systems.md](distributed-systems.md)), not only at
   the agent's read time — otherwise a camera flick-scrolling into the region between revalidation and
   arrival defeats it.
