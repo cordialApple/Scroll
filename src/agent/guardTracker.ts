@@ -1,4 +1,3 @@
-import type { RemoteCamera } from '../doc/awareness'
 import { DEFAULT_GRACE_MS, type GuardCamera } from './spatialGuard'
 
 export interface ObservedCamera {
@@ -20,11 +19,4 @@ export function trackCameras(
   for (const [id, cam] of prev) if (now - cam.lastSeenMs <= graceMs) next.set(id, cam)
   for (const c of live) next.set(c.clientId, { clientId: c.clientId, blockId: c.blockId, lastSeenMs: now })
   return next
-}
-
-// Bridge from the awareness layer's redirect-resolved cameras to the guard's id-only observations: the
-// effective anchor already followed the redirect table to a surviving successor, so its blockId places
-// in the current order.
-export function guardCamerasFromRemotes(remotes: RemoteCamera[]): ObservedCamera[] {
-  return remotes.map((r) => ({ clientId: r.clientId, blockId: r.anchor.blockId }))
 }
