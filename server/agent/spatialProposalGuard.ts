@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { DEFAULT_GRACE_MS, guardedBlocks, type GuardCamera, type GuardConfig } from '../../src/agent/spatialGuard'
 import { trackCameras, type ObservedCamera } from '../../src/agent/guardTracker'
-import { blockOrder, blocks, blockId, blockText, blockType, createDoc, redirectSource } from '../../src/doc/model'
+import { blockAuthor, blockOrder, blocks, blockId, blockText, blockType, createDoc, redirectSource } from '../../src/doc/model'
 import { resolveRedirect } from '../../src/doc/redirects'
 import type { Anchor } from '../../src/layout/layout'
 import type { GuardResult, ProposalGuard } from '../db/proposeCommit'
@@ -44,16 +44,19 @@ interface GuardView {
   id: string
   type: string
   delta: string
+  author: string
 }
 
-// Block identity for the guard: id + type + the full text DELTA (JSON), not toString(). The delta captures
-// formatting marks and embeds a plain-text signature would miss, so a mark-only or embed-only edit to a
-// guarded block is caught, not silently committed.
+// Block identity for the guard: id + type + text DELTA (JSON) + lastAuthor. The delta captures formatting
+// marks/embeds a plain-text signature would miss; lastAuthor is included so an author-only stamp (the agent's
+// provenance write, #72) into a guarded band is refused too — a marker change under a live reader is still an
+// uncoordinated write the guard exists to prevent.
 function guardViews(document: Y.Doc): GuardView[] {
   return blocks(document).map((m) => ({
     id: blockId(m),
     type: blockType(m),
     delta: JSON.stringify(blockText(m).toDelta()),
+    author: blockAuthor(m) ?? '',
   }))
 }
 
@@ -85,7 +88,7 @@ function guardedSpansIntact(before: GuardView[], after: GuardView[], guarded: Se
     for (let d = 0; d <= j - k; d++) {
       const a = before[k + d]
       const b = after[fi + d]
-      if (a.id !== b.id || a.type !== b.type || a.delta !== b.delta) return false
+      if (a.id !== b.id || a.type !== b.type || a.delta !== b.delta || a.author !== b.author) return false
     }
     k = j + 1
   }

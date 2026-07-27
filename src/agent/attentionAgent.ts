@@ -1,5 +1,5 @@
 import * as Y from 'yjs'
-import { blockOrder, blockViews, redirectSource, setBlockText } from '../doc/model'
+import { AUTHOR_AGENT, blockOrder, blockViews, redirectSource, setBlockAuthor, setBlockText } from '../doc/model'
 import type { HeadlessPeer } from '../peer/headlessPeer'
 import { markWorked } from './coldScheduler'
 import { resolveCameras } from './cameraResolve'
@@ -91,7 +91,13 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
     // of the cold set. A crashing actor becomes a structured result, never a rejected tick — the P6.6 loop
     // must not have to wrap every tick in try/catch.
     try {
-      const outcome = await peer.propose((fork) => actor(fork, target))
+      // Stamp provenance in the driver, not the actor: every injectable actor gets agent-authorship for free,
+      // and it rides the SAME proposal as the edit — one commit the authority guard-checks as a single op
+      // (the guard signature includes lastAuthor, so a stamp into a live reader's band is refused too, #72).
+      const outcome = await peer.propose((fork) => {
+        actor(fork, target)
+        setBlockAuthor(fork, target, AUTHOR_AGENT)
+      })
       return { targetId: target, proposed: true, committed: outcome.committed, reason: outcome.reason }
     } catch (err) {
       return { targetId: target, proposed: false, committed: false, reason: `actor error: ${String(err)}` }

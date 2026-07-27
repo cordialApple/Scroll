@@ -3,11 +3,15 @@ import { newBlockId } from './ids'
 import type { RedirectSource } from './redirects'
 
 export type BlockType = 'paragraph' | 'heading' | 'quote'
+export type BlockAuthor = 'agent' | 'human'
+export const AUTHOR_AGENT: BlockAuthor = 'agent'
+export const AUTHOR_HUMAN: BlockAuthor = 'human'
 
 export interface BlockView {
   id: string
   type: BlockType
   text: string
+  author?: BlockAuthor
 }
 
 const BLOCKS = 'blocks'
@@ -52,6 +56,11 @@ export function blockText(m: Y.Map<unknown>): Y.Text {
   return m.get('text') as Y.Text
 }
 
+export function blockAuthor(m: Y.Map<unknown>): BlockAuthor | undefined {
+  const v = m.get('lastAuthor')
+  return v === AUTHOR_AGENT ? AUTHOR_AGENT : v === AUTHOR_HUMAN ? AUTHOR_HUMAN : undefined
+}
+
 export function blockOrder(doc: Y.Doc): string[] {
   return blocks(doc).map(blockId)
 }
@@ -74,22 +83,35 @@ export function resolveBlockIndex(doc: Y.Doc, id: string, at?: number): number {
   return indexOfBlock(doc, id)
 }
 
-export function blockViews(doc: Y.Doc): BlockView[] {
-  return blocks(doc).map((m) => ({
-    id: blockId(m),
-    type: blockType(m),
-    text: blockText(m).toString(),
-  }))
+export function blockViewOf(m: Y.Map<unknown>): BlockView {
+  const view: BlockView = { id: blockId(m), type: blockType(m), text: blockText(m).toString() }
+  const author = blockAuthor(m)
+  if (author) view.author = author
+  return view
 }
 
-export function setBlockText(doc: Y.Doc, id: string, text: string, at?: number): void {
+export function blockViews(doc: Y.Doc): BlockView[] {
+  return blocks(doc).map(blockViewOf)
+}
+
+export function setBlockText(doc: Y.Doc, id: string, text: string, at?: number, author?: BlockAuthor): void {
   const idx = resolveBlockIndex(doc, id, at)
   if (idx < 0) return
-  const t = blockText(blocks(doc).get(idx))
+  const m = blocks(doc).get(idx)
+  const t = blockText(m)
   doc.transact(() => {
     t.delete(0, t.length)
     if (text) t.insert(0, text)
+    if (author && blockAuthor(m) !== author) m.set('lastAuthor', author)
   })
+}
+
+export function setBlockAuthor(doc: Y.Doc, id: string, author: BlockAuthor, at?: number): void {
+  const idx = resolveBlockIndex(doc, id, at)
+  if (idx < 0) return
+  const m = blocks(doc).get(idx)
+  if (blockAuthor(m) === author) return
+  doc.transact(() => m.set('lastAuthor', author))
 }
 
 export function blockTextString(doc: Y.Doc, id: string, at?: number): string | null {
@@ -143,6 +165,8 @@ export function splitBlock(doc: Y.Doc, id: string, charOffset: number, at?: numb
   const t = blockText(src)
   const tail = t.toString().slice(charOffset)
   const next = makeBlock(blockType(src), tail)
+  const author = blockAuthor(src)
+  if (author) next.set('lastAuthor', author) // structural split moves content; the tail keeps its origin
   doc.transact(() => {
     if (t.length > charOffset) t.delete(charOffset, t.length - charOffset)
     arr.insert(idx + 1, [next])

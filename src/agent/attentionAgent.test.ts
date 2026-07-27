@@ -45,6 +45,9 @@ interface FakeOpts {
   // When set, propose resolves after this delay (macrotask) instead of immediately — lets a test call stop()
   // WHILE a tick is awaiting propose, which is the only way to exercise the loop's post-await guards.
   deferMs?: number
+  // Invoked with the forked doc AFTER the actor + driver mutate it, BEFORE the outcome resolves — lets a test
+  // inspect exactly what the driver proposed (e.g. the provenance stamp) with no live server.
+  onFork?: (fork: Y.Doc) => void
 }
 function fakePeer(doc: Y.Doc, opts: FakeOpts = {}): { peer: HeadlessPeer; proposeCount: () => number } {
   let count = 0
@@ -59,6 +62,7 @@ function fakePeer(doc: Y.Doc, opts: FakeOpts = {}): { peer: HeadlessPeer; propos
       const fork = createDoc()
       Y.applyUpdate(fork, Y.encodeStateAsUpdate(doc))
       mutate(fork)
+      opts.onFork?.(fork)
       const outcome = opts.respond ? opts.respond() : { committed: true }
       return opts.deferMs ? new Promise<ProposalOutcome>((r) => setTimeout(() => r(outcome), opts.deferMs)) : Promise.resolve(outcome)
     },
@@ -82,6 +86,22 @@ describe('createAttentionAgent — the native attention-anchored driver (P6.5, #
     const band = new Set(ids.slice(0, 8))
     expect(band.has(r.targetId!)).toBe(false)
     expect(seen).toEqual([r.targetId])
+  })
+
+  it('stamps agent authorship on its target block — driver-level, regardless of the actor', async () => {
+    const { doc, ids } = makeDoc(30)
+    let authored: string[] = []
+    const { peer } = fakePeer(doc, {
+      cameras: [remoteCam(1, ids[15])],
+      onFork: (fork) => {
+        authored = blockViews(fork).filter((v) => v.author === 'agent').map((v) => v.id)
+      },
+    })
+    // A no-op actor: only the DRIVER's stamp can mark a block, so exactly the target ends up 'agent'.
+    const agent = createAttentionAgent(peer, { actor: () => {}, now: () => 1000 })
+    const r = await agent.tick()
+    expect(r.proposed).toBe(true)
+    expect(authored).toEqual([r.targetId])
   })
 
   it('fails closed when the provider has no awareness: idles without proposing', async () => {

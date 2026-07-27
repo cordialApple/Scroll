@@ -12,14 +12,14 @@ import {
 import type * as Y from 'yjs'
 import {
   blocks,
-  blockId,
-  blockType,
   blockText,
+  blockViewOf,
   resolveBlockIndex,
   redirectSource,
   setBlockText,
   splitBlock,
   mergeIntoPrevious,
+  AUTHOR_HUMAN,
   type BlockView,
 } from '../doc/model'
 import { resolveEffectiveAnchor } from '../doc/anchor'
@@ -133,7 +133,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     const out: BlockView[] = []
     for (let i = renderWindow.start; i < renderWindow.end; i++) {
       const m = arr.get(i)
-      if (m) out.push({ id: blockId(m), type: blockType(m), text: blockText(m).toString() })
+      if (m) out.push(blockViewOf(m))
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -285,7 +285,14 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   // O(log n) at-hint from the live index avoids indexOfBlock's O(n) scan on every keystroke/split/merge;
   // resolveBlockIndex re-verifies it, so a stale hint is corrected, never trusted blind.
   const hintOf = useCallback((id: string) => modelRef.current?.ix.indexOf(id), [])
-  const onEdit = useCallback((id: string, text: string) => setBlockText(doc, id, text, hintOf(id)), [doc, hintOf])
+  const onEdit = useCallback(
+    (id: string, text: string) => setBlockText(doc, id, text, hintOf(id), AUTHOR_HUMAN),
+    [doc, hintOf],
+  )
+  // Split/merge are STRUCTURAL — they relocate/concatenate existing text without re-authoring it, so they do
+  // NOT stamp 'human' (that would falsely relabel unchanged agent content). Authorship follows content: the
+  // split tail inherits the source author (in splitBlock); the merge survivor keeps its own. Only onEdit
+  // (actual typing) re-authors. (#72 PF2)
   const onSplit = useCallback(
     (id: string, caret: number) => {
       const next = splitBlock(doc, id, caret, hintOf(id))
