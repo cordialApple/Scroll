@@ -1,35 +1,44 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-26 · branch: p5.3-dictation-ui (PR #57 open, `Closes #56`, CI running) · session: P5.3 dictation UI + wiring + e2e — closes P5_
+_Last updated: 2026-07-27 · branch: main (P6.3 landed, PR #64 merged) · session: P6 attention-anchored agent editor — autonomous stage loop_
 
-## 1. What changed this session
-- **P5.3 (#56, PR #57) — dictation at the real UI surface. Closes P5.** The P5.1 in-memory composition + P5.2 headless adapter now meet a real mic behind shipping UI, with a milestone e2e.
-  - **`src/chrome/MicButton.tsx`** — mic button (idle/listening/error) + interim preview overlay (preview-only, italic + dashed, `pointer-events:none`) + hard-error toast. Mounted via a new `extra` slot on `Toolbar`.
-  - **`src/voice/useVoice.ts`** — React hook composing `createDictation` + `createWebSpeechTranscriber` (or the fake under DEV `?voice=fake`). Holds the advancing `activeTarget` (snapshot from `editor.dictationTarget()` on `→listening`, advanced by `observeCommit`), and **self-heals** to the live editor caret when the target block no longer resolves. Cleanup calls `transcriber.stop()` (mic release on unmount).
-  - **`src/editor/Editor.tsx`** — tracks the live caret via a `document` `selectionchange` listener (walks to the nearest `[data-block-id]`), exposes `dictationTarget()` on `EditorApi`. The target survives focus leaving for the mic button.
-  - **[C2] DECIDED** — the UI subscribes to the **raw `Transcriber`** for lifecycle/state/errors; `Dictation` stays text-only. Engine lifecycle ≠ doc mutation; keeps the P5.1 interface clean.
-  - **P5.2 carry-forwards [B1]–[B5]/[A1] folded in** (real recognizer now reaches them): [B1] narrowed `start()` catch (+ [F-04] `isInvalidState` duck-types `.name`, since a real InvalidStateError is a DOMException, not `instanceof Error`); [B2] instance-identity guard (`detach()` nulls handlers + `abort()`s, all handlers wrapped `recognition === rec`); [B3] transient-restart backoff/cap/dedup; [B4] `audio-capture` kind + hard-path; [B5] suppress `aborted` emit on intentional stop; [A1] append-only fail-safe test.
-  - **`e2e/voice.spec.ts`** — fake injected via DEV `?voice=fake`, driven through `window.__scroll.voice`. Proves: interim overlay shows and never mutates the doc; the final lands at the caret in the correct block (asserted via the **doc**, since a focused block skips DOM sync); an off-screen block demonstrably **grows** while the on-screen anchored camera holds (non-vacuous anti-jump).
+## 1. What changed this session (P6.1 → P6.3, all merged)
+- **P6.1 (#59, `5b22ea2`) — above-camera measure lag fixed.** The §4 carry-forward from P5. `Block.tsx` now sync a non-focused block's `innerText` in `useLayoutEffect` (before paint), so the Editor's `useLayoutEffect` re-measure see a fresh height → an above-camera programmatic grow no longer drift the camera. Plus a focused split/merge blur reconcile. Load-bearing for P6 (an agent edit above the human caret is exactly this flow).
+- **P6.2 (#61, `9e65c93`) — spatial guard predicate + grace tracker (pure, no wiring).**
+  - **`src/agent/spatialGuard.ts`** — pure fail-closed predicate. `guardedBlocks(input): Set<string>` from order + cameras + pinned. Band is ASYMMETRIC `[A-buffer, A+(visibleBlocks-1)+buffer]` because the camera anchor is the viewport TOP and the visible span run DOWNWARD (defaults visibleBlocks=4, buffer=4, graceMs=120_000). Fail closed: awareness outage → guard all; unplaceable camera → guard all; pinned always; grace keeps a dropped camera's band ~2min.
+  - **`src/agent/guardTracker.ts`** — `trackCameras(prev, live, now, graceMs)` grace reducer (last-write-wins per clientId).
+  - Architecture doc reconciled: band asymmetry justified (anchor = viewport top).
+- **P6.3 (#62, PR #64, `4f994be`) — commit-time spatial `ProposalGuard`, enforced at the authority.**
+  - **`server/agent/spatialProposalGuard.ts`** — `createSpatialProposalGuard(): ProposalGuard`. Per-room grace tracker (WeakMap by doc), folded each proposal. `liveCameras` map awareness cameras through order+redirect; an UNPLACEABLE camera → raw id → fail closed (never `order[0]`). Block signature = `id + type + text DELTA` (`toDelta`), catches mark/embed edits. `guardedSpansIntact` = STRUCTURAL per-field compare over each maximal guarded run (length guard + element-wise), no delimiter.
+  - **`server/db/proposeCommit.ts`** — `ProposalGuardCtx` widened with room `awareness` + `now`; authority clock `performance.now()` (monotonic).
+  - **`server/hocuspocus.ts`** — guard default-on. A room with no published camera guard nothing → behavior-compatible with the old allow-all (P4.5-safe).
 
-## 2. Decisions made and why
-- **[C2]: UI ↔ raw Transcriber; Dictation stays text-only.** Lifecycle/error belong to the engine; `Dictation` is doc mutation (interim + commit). A `MicButton` given both objects composes them in the React layer — the P5.1 "prove the composition" philosophy — instead of growing `Dictation` with an error passthrough that just proxies two concerns.
-- **e2e asserts via the doc, not the DOM.** A contentEditable block that is focused skips `innerText` sync (`Block.tsx`), so dictated text only appears in Yjs while focused. The milestone reads `blockTextString(doc, id)`; to prove real layout growth it blurs the target first.
-- **Anti-jump scoped to the below-camera case (on purpose).** Dictation happens at an on-screen caret → the caret block sits at/below the anchor. The e2e edits an off-screen block **below** the camera and proves the anchor holds. Editing **above** the camera hits a pre-existing measurement lag (see §4) — out of scope for a voice PR.
-- **Restart-cancellation via `epoch`, not timer handles.** `start()`/`stop()` bump `epoch`; a scheduled restart captures its epoch and no-ops if it moved. Simpler than threading `clearTimeout` handles, and `detach()` aborting the superseded instance is belt-and-suspenders against an orphaned live mic.
+## 2. Decisions and why
+- **Enforce at COMMIT, at the authority.** contract-1 seam. The single-threaded room authority evaluate the guard against the AUTHORITATIVE doc, closing the check-then-act race a proposer's read-time check can't. Op-grain refuse (no teardown).
+- **Fail closed, everywhere.** null awareness (unknown peer set), unplaceable camera (block hard-deleted no redirect), awareness outage → guard the whole doc. A dropped reader keeps their band for `graceMs` (network-blip immunity).
+- **Signature = text DELTA, structural compare.** Not `toString()` (would miss marks/embeds) and not a string join (a delimiter byte was a bug — a literal NUL made the file binary). Per-field element-wise over each guarded run.
+- **Default-on but LATENT.** Prod `server/index.ts` set no `authenticate` → `peerFromContext` null → a proposal is refused PRE-guard. So the guard evaluate zero real proposals today; every fail-open is latent until P6.4 wires an authenticated `CAP_PROPOSE` agent. This is why the deep awareness-freshness holes defer to P6.4.
 
-## 3. What was tested and how
-- `npm run typecheck` clean · `npm run build` clean · **unit 188/188** (voice suite 28: adapter incl. new [B1]/[B2]/[B3]/[B4]/[B5]/[A1]/[F-02]/[F-04] teeth + dictation) · **e2e 12/12** incl. the new P5 milestone. CI (#57): typecheck/test/build + playwright e2e running at handoff.
-- **Sabotage teeth (F-02, RED→GREEN, adjudicator-verified):** drop the `epoch` guard → the stale-restart-orphan test goes RED; drop `detach()`'s `abort()` → the belt test goes RED.
-- **Gate:** simplifier (nothing to tidy, twice) → 3 parallel `inspector`s (transcriber carry-forwards / wiring+caret / UI+e2e) → `adjudicator`: **2 blockers + 5 warnings → all fixed → re-adjudicated PASS-WITH-CARRYFORWARD.** The two blockers were both orphaned-live-mic leaks (teardown missing `stop()`; uncancelled restart timer).
+## 3. Tested / gated
+- **225 pass / 2 skip** (the 2 skips are honest P6.4 pins, verified to FAIL if un-skipped). typecheck 0.
+- Each stage gated: simplifier → parallel `inspector`s (one lens each) → `adjudicator` (sabotage-verifies, renders the determination). P6.2 and P6.3 both landed **PASS-WITH-CARRYFORWARD** after a first-pass BLOCK (P6.2: symmetric band; P6.3: NUL bytes) fixed + re-adjudicated.
+- P6.3 sabotage-proven: flip `toDelta`→`toString` reddens the formatting test; flip unplaceable→`order[0]` reddens the fail-closed test.
 
-## 4. Files needing attention (carry-forward, adjudicator-logged, non-blocking)
-- **[Editor layer — above-camera measurement lag]** `Block.tsx` syncs a non-focused block's `innerText` in a passive `useEffect` (after paint); the Editor measures/corrects in `useLayoutEffect` (before paint). A programmatic text-grow of a rendered **above-camera** block is measured stale → the camera drifts by the growth until the next unrelated render. **Pre-existing** (Block.tsx untouched by P5.3); reachable by any above-camera programmatic mutation (remote-peer edit, undo, synthetic insert), not just voice. Fix direction: move the sync to `useLayoutEffect`, or per-block `ResizeObserver`, or force a re-measure render after sync. Pin with a skipped/`fixme` e2e so it isn't later mistaken as covered.
-- **[Test debt]** No `useVoice.test.ts`. [F-01]'s mic-release-on-unmount is a one-line fix with no dedicated tooth — add a `renderHook` test: start → unmount → assert `transcriber.stop()` called / state idle.
-- **[Coverage]** The e2e never drives the error/toast path end-to-end (network give-up / unknown-throw → toast). [F-03] is unit-covered only.
-- **Still open from prior phases:** [I3-F2] shared-pool flake (P4 infra debt, green when Postgres is up), [I3-F6] `sinkSocketError` private-`webSocket` cast in `headlessPeer.ts`, and the P6-deferred `resolveRoomConfig`/`grantCaps` + concrete `ProposalGuard` + agent→propose-only cap policy.
-- Program status board (single source of truth): https://claude.ai/code/artifact/594fb42d-ae43-44e9-b903-acc5d33e9de2 — **refreshed this session** (P4 CLOSED 5/5, P5 building 2/3, north-star ~90%). Bump P5 → CLOSED 3/3 once #57 merges.
+## 4. Carry-forward (adjudicator-logged, non-blocking)
+- **Guard hardening → P6.4 (#63)** — all LATENT (no prod proposer yet):
+  - **F-04** continuous awareness observer: the tracker fold only at proposal time → a reader who move A→B with no intervening proposal then drop is remembered at stale A. Fix = per-room awareness `update` observer.
+  - **F-05** reconnect-gap fail-open: a reloaded room present a fresh EMPTY awareness, indistinguishable from "no readers" → a proposal in the gap commit. Fix = empty-vs-unknown signal + grace keyed by room NAME not doc identity.
+  - **F-06** proposer self-exclusion (liveness, not safety): an agent that publish its own camera near where it propose would refuse itself. Fix = actor never publish a camera, or guard exclude the proposer's clientId.
+  - Both safety holes (F-04/F-05) pinned by skipped tests that FAIL un-skipped.
+- **Still open from prior phases:** [I3-F2] shared-pool flake (P4 infra debt), [I3-F6] `sinkSocketError` private-`webSocket` cast in `headlessPeer.ts`.
 
-## 5. Next step
-**P5 is closing (#57 merging).** Two directions, both Scroll-owned:
-- **P6 — attention-anchored agent editor** (the native expression of agent-as-peer): Scroll's own dogfooded agent reorganizing cold regions while no human viewport moves. This is where the **above-camera measurement lag** (§4) becomes load-bearing — an agent editing above the human caret is exactly the flow that lag breaks — so fix that Editor-layer defect first (it also hardens remote-peer/undo edits). Depends on the P6-deferred `resolveRoomConfig`/`grantCaps` + `ProposalGuard` + agent→propose-only cap policy.
-- **P5 hardening** (optional, quick): land the three carry-forward test/coverage items above before moving on.
+## 5. Next step — P6.4
+**P6.4 — the authenticated agent + cap policy + agent loops.** The counterparty that makes the guard load-bearing:
+- `resolveRoomConfig` / `grantCaps` — wire an `authenticate` path that grant an agent `CAP_PROPOSE` (propose-only; never `CAP_WRITE`).
+- Agent observer/actor loops — observer read cold regions; actor propose reorganizations via the propose/commit path (refused if it hit a live camera band).
+- LRU prioritization over residency (which cold region to work first).
+- Fold in #63's F-04/F-05/F-06 (they finally have the machinery to integration-test against).
+
+Then **P6.5** (provenance rendering — show which blocks an agent touched) and **P6.6** (milestone e2e → P6 CLOSE, the last phase).
+
+Program status board (single source of truth, refreshed at phase boundaries): https://claude.ai/code/artifact/594fb42d-ae43-44e9-b903-acc5d33e9de2 — stale (still show P5 building); bump to P6 3/6 landed at the next refresh.
