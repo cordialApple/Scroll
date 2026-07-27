@@ -97,7 +97,8 @@ function classify(error: string): TranscriberErrorKind {
 }
 
 function isInvalidState(err: unknown): boolean {
-  return err instanceof Error && err.name === 'InvalidStateError'
+  // A native InvalidStateError is a DOMException, which is NOT instanceof Error in browsers — duck-type.
+  return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'InvalidStateError'
 }
 
 // Web Speech adapter for the Transcriber interface. Maps native onresult (a cumulative results list)
@@ -121,6 +122,9 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
   let transientStreak = 0
   let endedTransient = false
   let restartPending = false
+  // Bumped on every intentional start()/stop(); a scheduled restart from a prior epoch is stale and
+  // must no-op, or it would spawn an orphaned session over one the caller has already re-established.
+  let epoch = 0
 
   const results = new Set<(e: TranscriptEvent) => void>()
   const states = new Set<(s: TranscriberState) => void>()
@@ -142,8 +146,6 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
     // stop() flips intendedRunning synchronously but state lags until the native onend; gate here so a
     // trailing final in the stop->onend window is cut off at the adapter, not just by the downstream guard.
     if (!intendedRunning) return
-    // Output means the engine is healthy — clear any accumulated transient-restart backoff.
-    transientStreak = 0
     let interim = ''
     for (let i = 0; i < e.results.length; i++) {
       const r = e.results[i]
@@ -152,7 +154,12 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
         if (i >= finalizedCount) {
           finalizedCount = i + 1
           const text = transcript.trim()
-          if (text) emitResult({ text, isFinal: true })
+          if (text) {
+            // A committed final means the engine is healthy — clear transient-restart backoff. Reset on
+            // finals only (not bare interims), so a flapping recognizer that never commits still hits the cap.
+            transientStreak = 0
+            emitResult({ text, isFinal: true })
+          }
         }
       } else {
         interim += transcript
@@ -201,9 +208,10 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
         if (restartPending) return
         restartPending = true
         const delay = Math.min(restartBaseMs * 2 ** (transientStreak - 2), restartMaxMs)
+        const scheduledEpoch = epoch
         scheduleRestart(() => {
           restartPending = false
-          if (intendedRunning && state !== 'error') beginSession(c)
+          if (epoch === scheduledEpoch && intendedRunning && state !== 'error') beginSession(c)
         }, delay)
         return
       }
@@ -216,6 +224,13 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
     rec.onerror = null
     rec.onend = null
     rec.onstart = null
+    // Belt-and-suspenders: abort the superseded instance so no path can leave a live mic orphaned.
+    // Handlers are already nulled, so the resulting onend is a no-op and can't trigger a restart.
+    try {
+      rec.abort()
+    } catch {
+      /* already inactive */
+    }
   }
 
   function beginSession(c: SpeechRecognitionCtor) {
@@ -262,10 +277,12 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
       transientStreak = 0
       endedTransient = false
       restartPending = false
+      epoch++
       beginSession(ctor)
     },
     stop: () => {
       intendedRunning = false
+      epoch++
       recognition?.stop()
     },
     onResult: (cb) => {

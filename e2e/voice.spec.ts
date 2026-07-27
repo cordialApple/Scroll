@@ -61,26 +61,38 @@ test('P5 milestone — dictated final lands at the caret while the anchored came
 
   await settle(page)
 
-  // Put the caret at the end of an early block (visible at the top) — the dictation target.
+  // Scroll mid-document so the camera anchors on-screen with rendered content off-screen above it.
+  await page.evaluate((scrollSel) => {
+    const canvas = document.querySelector(scrollSel) as HTMLElement
+    canvas.scrollTop = Math.round((canvas.scrollHeight - canvas.clientHeight) * 0.4)
+  }, SCROLL_SELECTOR)
+  await settle(page)
+
+  // Select (via a Range, NOT focus() — which would scroll-into-view) the end of a block that sits fully
+  // below the viewport: off-screen, yet rendered/measured so its growth is real. Growth below the camera
+  // must not move the on-screen anchor — the relative-anchoring guarantee for edits happening elsewhere.
   const setup = await page.evaluate((scrollSel) => {
     const w = window as unknown as {
-      __scroll: {
-        doc: unknown
-        blockOrder: (d: unknown) => string[]
-        blockTextString: (d: unknown, id: string) => string | null
-      }
+      __scroll: { doc: unknown; blockTextString: (d: unknown, id: string) => string | null }
     }
-    const targetId = w.__scroll.blockOrder(w.__scroll.doc)[3]
     const canvas = document.querySelector(scrollSel) as HTMLElement
-    const el = canvas.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(targetId)}"]`)!
-    el.focus()
+    const contBottom = canvas.getBoundingClientRect().top + canvas.clientHeight
+    const below = [...canvas.querySelectorAll<HTMLElement>('[data-block-id]')].filter(
+      (el) => el.getBoundingClientRect().top >= contBottom - 0.5,
+    )
+    const el = below[0]
+    const targetId = el.dataset.blockId!
     const range = document.createRange()
     range.selectNodeContents(el)
     range.collapse(false)
     const sel = window.getSelection()!
     sel.removeAllRanges()
     sel.addRange(range)
-    return { targetId, baseline: w.__scroll.blockTextString(w.__scroll.doc, targetId) ?? '' }
+    return {
+      targetId,
+      baseline: w.__scroll.blockTextString(w.__scroll.doc, targetId) ?? '',
+      height: Math.round(el.getBoundingClientRect().height),
+    }
   }, SCROLL_SELECTOR)
   const { targetId, baseline } = setup
   await settle(page)
@@ -96,20 +108,12 @@ test('P5 milestone — dictated final lands at the caret while the anchored came
     targetId,
   )
 
+  // Selecting inside the contentEditable focused it; blur so the commit re-renders the block into the
+  // DOM (Block skips innerText sync while focused). The caret target persists in the editor after blur.
   await page.evaluate(() => {
     const active = document.activeElement as HTMLElement | null
     if (active && active.dataset.blockId) active.blur()
   })
-
-  // Scroll a few blocks down so the caret's block sits just above the fold — off-screen but still in
-  // the measured band, so its growth adds real height the camera must absorb (a meaningful anti-jump).
-  await page.evaluate((scrollSel) => {
-    const w = window as unknown as { __scroll: { doc: unknown; blockOrder: (d: unknown) => string[] } }
-    const canvas = document.querySelector(scrollSel) as HTMLElement
-    const anchorTop = w.__scroll.blockOrder(w.__scroll.doc)[7]
-    const el = canvas.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(anchorTop)}"]`)
-    if (el) canvas.scrollTop += el.getBoundingClientRect().top - canvas.getBoundingClientRect().top
-  }, SCROLL_SELECTOR)
   await settle(page)
 
   // Baseline camera state captured immediately before dictation isolates the commit's effect.
@@ -117,7 +121,7 @@ test('P5 milestone — dictated final lands at the caret while the anchored came
   expect(before.anchorId, 'a mid-doc anchor is resolved').toBeTruthy()
   expect(before.scrollTop, 'scrolled off the top').toBeGreaterThan(100)
   expect(before.nodeCount, 'still virtualized').toBeLessThan(200)
-  expect(before.anchorId, 'caret target is off-screen, camera anchored elsewhere').not.toBe(targetId)
+  expect(before.anchorId, 'caret target is off-screen below, camera anchored above it').not.toBe(targetId)
 
   // Start dictation and stream an interim tail — the preview overlay must show it, unpersisted.
   await page.evaluate(() => {
@@ -141,8 +145,9 @@ test('P5 milestone — dictated final lands at the caret while the anchored came
   }, targetId)
   expect(midDoc, 'interim never mutates the doc').toBe(baseline)
 
-  // Commit a final — it must land at the caret in the off-screen target block.
-  const FINAL = 'quick brown fox jumps over the lazy dog'
+  // Commit a final long enough to wrap several lines — it lands at the caret AND grows the off-screen
+  // block's real height, so the anti-jump assertion below is exercising genuine compensation, not a no-op.
+  const FINAL = `quick brown fox ${'jumps over the lazy dog '.repeat(12)}`.trim()
   await page.evaluate((text) => {
     const w = window as unknown as {
       __scroll: { voice: { transcriber: { emitFinal(t: string): void } } }
@@ -151,16 +156,28 @@ test('P5 milestone — dictated final lands at the caret while the anchored came
   }, FINAL)
   await settle(page)
 
-  const afterDoc = await page.evaluate((anchorId) => {
-    const w = window as unknown as {
-      __scroll: { doc: unknown; blockTextString: (d: unknown, id: string) => string | null }
-    }
-    return w.__scroll.blockTextString(w.__scroll.doc, anchorId) ?? ''
-  }, targetId)
-  expect(afterDoc, 'final text landed at the caret').toContain(FINAL)
-  expect(afterDoc.startsWith(baseline), 'inserted at end, preserving prior text').toBe(true)
+  const result = await page.evaluate(
+    ({ scrollSel, anchorId }) => {
+      const w = window as unknown as {
+        __scroll: { doc: unknown; blockTextString: (d: unknown, id: string) => string | null }
+      }
+      const canvas = document.querySelector(scrollSel) as HTMLElement
+      const el = canvas.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(anchorId)}"]`)
+      return {
+        text: w.__scroll.blockTextString(w.__scroll.doc, anchorId) ?? '',
+        height: el ? Math.round(el.getBoundingClientRect().height) : -1,
+      }
+    },
+    { scrollSel: SCROLL_SELECTOR, anchorId: targetId },
+  )
+  expect(result.text, 'final text landed at the caret').toContain(FINAL)
+  expect(result.text.startsWith(baseline), 'inserted at end, preserving prior text').toBe(true)
+  expect(
+    result.height,
+    'the off-screen edited block actually grew (anti-jump assertion is non-vacuous)',
+  ).toBeGreaterThan(setup.height)
 
-  // Editing an off-screen block must not move the on-screen anchored camera (P0/P4 anti-jump discipline).
+  // Editing an off-screen block that demonstrably grew must not move the on-screen camera (P0/P4 anti-jump).
   const after = await readMetrics(page)
   expect(after.anchorId, 'anchor identity unchanged').toBe(before.anchorId)
   expect(

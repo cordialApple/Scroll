@@ -1,17 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { Dictation } from '../voice/dictation'
-import type { Transcriber, TranscriberError, TranscriberErrorKind, TranscriberState } from '../voice/transcriber'
+import type { Transcriber, TranscriberError, TranscriberState } from '../voice/transcriber'
 
 interface Props {
   transcriber: Transcriber
   dictation: Dictation
 }
-
-const HARD: ReadonlySet<TranscriberErrorKind> = new Set([
-  'permission-denied',
-  'unsupported',
-  'audio-capture',
-])
 
 function errorMessage(e: TranscriberError): string {
   switch (e.kind) {
@@ -21,6 +15,8 @@ function errorMessage(e: TranscriberError): string {
       return "Voice typing isn't supported in this browser."
     case 'audio-capture':
       return 'No microphone was found. Check your input device.'
+    case 'network':
+      return 'Voice typing lost the connection to the speech service. Try again.'
     default:
       return e.message ?? 'Voice typing hit an error.'
   }
@@ -34,8 +30,10 @@ export function MicButton({ transcriber, dictation }: Props) {
   useEffect(() => {
     const offState = transcriber.onStateChange(setState)
     const offInterim = dictation.observeInterim(setInterim)
+    // Surface any error that lands the engine in a terminal state — hard permission/device errors,
+    // restart-exhaustion (network), and start throws (unknown). Transient blips keep state 'listening'.
     const offError = transcriber.onError((e) => {
-      if (HARD.has(e.kind)) setError(e)
+      if (transcriber.state === 'error') setError(e)
     })
     return () => {
       offState()

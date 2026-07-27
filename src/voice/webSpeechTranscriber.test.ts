@@ -36,7 +36,8 @@ class MockRecognition implements SpeechRecognitionLike {
   stopped = 0
   running = false
   throwOnStart = false
-  startError: Error = invalidState()
+  startError: unknown = invalidState()
+  aborted = 0
 
   start() {
     if (this.throwOnStart) throw this.startError
@@ -51,6 +52,7 @@ class MockRecognition implements SpeechRecognitionLike {
     this.onend?.()
   }
   abort() {
+    this.aborted++
     this.running = false
     this.onend?.()
   }
@@ -330,6 +332,63 @@ describe('P5.2 web speech transcriber — native SpeechRecognition behind the in
     expect(delays.length).toBeGreaterThan(0)
     expect(delays).toEqual([...delays].sort((a, b) => a - b))
     expect(Math.max(...delays)).toBeLessThanOrEqual(1000)
+  })
+
+  it('swallows a DOMException-shaped InvalidStateError, not just Error instances ([F-04])', () => {
+    // Real browsers throw a DOMException (NOT instanceof Error) — the swallow must duck-type on name.
+    const domLike = { name: 'InvalidStateError', message: 'recognition has already started' }
+    const m = mockCtor((r) => {
+      r.throwOnStart = true
+      r.startError = domLike
+    })
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+    t.start()
+    expect(t.state).not.toBe('error')
+    expect(errs).toEqual([])
+  })
+
+  it('a stale scheduled restart cannot orphan a live session across stop()+start() ([F-02])', () => {
+    let pending: (() => void) | null = null
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({
+      recognitionCtor: m.ctor,
+      restartBaseMs: 50,
+      scheduleRestart: (fn) => {
+        pending = fn // capture, do NOT run — models a real timer still in flight
+      },
+    })
+
+    t.start()
+    // Two transient errors push the streak past the immediate-restart threshold, scheduling a backoff.
+    m.last().fireError('network')
+    m.last().fireEnd()
+    m.last().fireError('network')
+    m.last().fireEnd()
+    expect(pending, 'a backoff restart is now pending').not.toBeNull()
+
+    // Caller intentionally cycles the session while the stale timer is still in flight.
+    t.stop()
+    t.start()
+    const live = m.last()
+    const instancesAfterRestart = m.instances.length
+
+    // The stale timer fires — it must no-op (wrong epoch), not spawn a session over the live one.
+    pending!()
+    expect(m.instances.length, 'no orphaned session from the stale restart').toBe(instancesAfterRestart)
+    expect(live.running, 'the caller-established session stays live').toBe(true)
+  })
+
+  it('detaching a superseded recognizer aborts it so no live mic is orphaned ([F-02] belt)', () => {
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    t.start()
+    const first = m.last()
+    first.fireEnd() // silence-timeout restart supersedes `first`
+    expect(m.instances.length).toBe(2)
+    expect(first.aborted, 'superseded instance was aborted').toBeGreaterThan(0)
+    t.stop()
   })
 
   it('never double-inserts when the native results list shrinks/rebases ([A1] fail-safe)', () => {
