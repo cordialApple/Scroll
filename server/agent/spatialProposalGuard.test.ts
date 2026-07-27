@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { CAP_PROPOSE, type PeerIdentity } from '../auth/peerToken'
 import { evaluateProposal, type ProposalGuard } from '../db/proposeCommit'
 import { createSpatialProposalGuard } from './spatialProposalGuard'
-import { appendBlock, createDoc, insertBlockAfter, mergeIntoPrevious, setBlockText } from '../../src/doc/model'
+import { appendBlock, blocks, blockText, createDoc, insertBlockAfter, mergeIntoPrevious, setBlockText } from '../../src/doc/model'
 
 const MAX = 8 * 1024 * 1024
 const proposer: PeerIdentity = { sub: 'agent-1', role: 'agent', caps: [CAP_PROPOSE], room: 'r' }
@@ -105,5 +105,48 @@ describe('createSpatialProposalGuard — commit-time spatial enforcement (P6.3)'
     const awareness = awarenessWithCamera(doc, ids[5])
     const update = proposal(doc, (f) => setBlockText(f, ids[35], 'edit pinned'))
     expect(decide(doc, update, awareness, guard).commit).toBe(false)
+  })
+
+  // F-02: the guard signature is the text DELTA, not toString() — a mark/embed-only edit to a guarded
+  // block would leave a plain-text compare fooled (same characters) but changes the delta, so it refuses.
+  it('refuses a formatting-only edit to a guarded block (delta signature, not plain text)', () => {
+    const { doc, ids } = seed(40)
+    const awareness = awarenessWithCamera(doc, ids[20]) // band ~[16..27]
+    const update = proposal(doc, (f) => {
+      const t = blockText(blocks(f).get(22))
+      t.format(0, t.length, { bold: true })
+    })
+    expect(decide(doc, update, awareness, createSpatialProposalGuard())).toMatchObject({ commit: false })
+  })
+
+  // F-03: a camera on a hard-deleted block with no redirect is UNPLACEABLE. It must fail closed (guard the
+  // whole doc), never launder to order[0] the way the layout resolver does — that under-guards the reader.
+  it('fails closed when a camera points at a hard-deleted block with no redirect', () => {
+    const { doc, ids } = seed(40)
+    doc.transact(() => blocks(doc).delete(20, 1)) // raw delete, no redirect entry
+    const awareness = awarenessWithCamera(doc, ids[20]) // reader still reports the vanished block
+    const update = proposal(doc, (f) => setBlockText(f, ids[35], 'edit far from order[0]'))
+    expect(decide(doc, update, awareness, createSpatialProposalGuard())).toMatchObject({ commit: false })
+  })
+
+  // F-04 (carry-forward #63): the tracker folds only at proposal time, so a reader who moves A→B with no
+  // intervening proposal then drops is remembered at stale A, leaving B cold. Needs a continuous awareness
+  // observer. SKIP: asserts the post-fix behaviour; un-skipped it FAILS today (block 30 commits).
+  it.skip('P6.4 (#63): remembers a reader who moved then dropped without an intervening proposal', () => {
+    const { doc, ids } = seed(40)
+    const guard = createSpatialProposalGuard({ graceMs: 5000 })
+    decide(doc, proposal(doc, (f) => setBlockText(f, ids[38], 'seed obs')), awarenessWithCamera(doc, ids[10]), guard, 0)
+    const update = proposal(doc, (f) => setBlockText(f, ids[30], 'edit at reader true position'))
+    expect(decide(doc, update, emptyAwareness(doc), guard, 100).commit).toBe(false)
+  })
+
+  // F-05 (carry-forward #63): a reloaded room presents a fresh EMPTY Awareness, today indistinguishable
+  // from "genuinely no readers", so a proposal in the reconnect gap commits. Needs empty-vs-unknown +
+  // grace keyed by room name. SKIP: un-skipped it FAILS today (commits). Contrast the :78 test, where an
+  // empty awareness legitimately commits — the fix is the signal that tells the two apart.
+  it.skip('P6.4 (#63): fails closed in a room-reload reconnect gap (empty non-null awareness ≠ no readers)', () => {
+    const { doc, ids } = seed(40)
+    const update = proposal(doc, (f) => setBlockText(f, ids[20], 'edit in the reconnect gap'))
+    expect(decide(doc, update, emptyAwareness(doc), createSpatialProposalGuard(), 0).commit).toBe(false)
   })
 })

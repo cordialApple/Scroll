@@ -1,4 +1,5 @@
 import * as Y from 'yjs'
+import { performance } from 'node:perf_hooks'
 import type { Awareness } from 'y-protocols/awareness'
 import type { Extension } from '@hocuspocus/server'
 import { CAP_PROPOSE, peerFromContext, type PeerIdentity } from '../auth/peerToken'
@@ -54,7 +55,7 @@ export function evaluateProposal(args: EvaluateProposalArgs): ProposalDecision {
   } catch {
     return { commit: false, reason: 'proposal rejected: undecodable update payload' }
   }
-  const verdict = guard(update, { peer, document, awareness: args.awareness ?? null, now: args.now ?? Date.now() })
+  const verdict = guard(update, { peer, document, awareness: args.awareness ?? null, now: args.now ?? performance.now() })
   if (!verdict.ok) return { commit: false, reason: verdict.reason }
   return { commit: true }
 }
@@ -149,10 +150,10 @@ export function createProposeCommitExtension(commitProposal: CommitProposal, opt
         }
 
         const peer = peerFromContext(connection.context)
-        // Hocuspocus's Document extends Y.Doc with a room-level `.awareness`; the Extension callback types
-        // it as plain Y.Doc, so reach it once here and hand it to the guard as room context.
-        const awareness = (document as unknown as { awareness?: Awareness }).awareness ?? null
-        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes, awareness, now: Date.now() })
+        // Hocuspocus's Document owns the room-level awareness; hand it to the guard as room context. The
+        // authority clock is monotonic (performance.now) so a wall-clock step can't corrupt grace math.
+        const awareness = document.awareness ?? null
+        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes, awareness, now: performance.now() })
 
         if (decision.commit) await commitProposal(documentName, document, update)
         connection.sendStateless(result(proposal.id, decision))
