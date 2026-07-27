@@ -1,14 +1,17 @@
 import { describe, it } from 'vitest'
 import fc from 'fast-check'
-import { guardedBlocks, coldBlocks, residencyBand, type GuardCamera } from '../../../agent/spatialGuard'
+import { guardedBlocks, coldBlocks, type GuardCamera } from '../../../agent/spatialGuard'
 import { pbtAssert } from '../harness'
 
 const orderOf = (n: number) => Array.from({ length: n }, (_, i) => `b${i}`)
 
+// Cameras generated in-grace at now = NOW (lastSeen ≥ NOW - DEFAULT_GRACE_MS = 180_000), so bands are
+// non-empty and the union / partition / pinned properties exercise real guarded sets, not vacuous ones.
+const NOW = 300_000
 const rawCam = fc.record({
   clientId: fc.integer({ min: 1, max: 9 }),
   idxSel: fc.nat(),
-  lastSeenMs: fc.integer({ min: 0, max: 300_000 }),
+  lastSeenMs: fc.integer({ min: 180_000, max: NOW }),
 })
 const rawCams = fc.array(rawCam, { maxLength: 6 })
 type RawCam = { clientId: number; idxSel: number; lastSeenMs: number }
@@ -19,42 +22,48 @@ const place = (order: string[], c: RawCam): GuardCamera => ({
 })
 
 describe('PBT: spatial guard (P6.2 correctness core)', () => {
-  it('guards exactly the clamped ±radius window of a single live camera', () => {
-    pbtAssert(
-      fc.property(fc.integer({ min: 1, max: 60 }), fc.nat(), fc.integer({ min: 0, max: 8 }), (n, sel, radius) => {
-        const order = orderOf(n)
-        const blockId = order[sel % n]
-        const g = guardedBlocks({
-          order,
-          cameras: [{ clientId: 1, blockId, lastSeenMs: 100 }],
-          awarenessKnown: true,
-          now: 100,
-          config: { radius, graceMs: 1000 },
-        })
-        const expected = new Set(residencyBand(order, blockId, radius))
-        if (g.size !== expected.size) return false
-        for (const id of expected) if (!g.has(id)) return false
-        return true
-      }),
-    )
-  })
-
-  it('is monotonic: adding a camera never releases a guarded block', () => {
+  it('guards exactly the asymmetric top-anchor band of a single live camera', () => {
     pbtAssert(
       fc.property(
         fc.integer({ min: 1, max: 60 }),
-        rawCams,
-        rawCam,
-        (n, cams, extra) => {
+        fc.nat(),
+        fc.integer({ min: 0, max: 8 }),
+        fc.integer({ min: 1, max: 8 }),
+        (n, sel, buffer, visibleBlocks) => {
           const order = orderOf(n)
-          const base = cams.map((c) => place(order, c))
-          const now = 300_000
-          const g0 = guardedBlocks({ order, cameras: base, awarenessKnown: true, now })
-          const g1 = guardedBlocks({ order, cameras: [...base, place(order, extra)], awarenessKnown: true, now })
-          for (const id of g0) if (!g1.has(id)) return false
-          return true
+          const camIdx = sel % n
+          const g = guardedBlocks({
+            order,
+            cameras: [{ clientId: 1, blockId: order[camIdx], lastSeenMs: 100 }],
+            awarenessKnown: true,
+            now: 100,
+            config: { buffer, visibleBlocks, graceMs: 1000 },
+          })
+          // Independent oracle: a block index j is guarded iff it lies in the asymmetric window
+          // [camIdx - buffer, camIdx + (visibleBlocks - 1) + buffer], computed here as a per-index
+          // predicate (not the implementation's slice/clamp), so a shared off-by-one cannot hide.
+          let expectedSize = 0
+          for (let j = 0; j < n; j++) {
+            const inBand = j >= camIdx - buffer && j <= camIdx + (visibleBlocks - 1) + buffer
+            if (inBand) expectedSize++
+            if (g.has(order[j]) !== inBand) return false
+          }
+          return g.size === expectedSize
         },
       ),
+    )
+  })
+
+  it('is monotonic: adding an in-grace camera never releases a guarded block', () => {
+    pbtAssert(
+      fc.property(rawCams, rawCam, (cams, extra) => {
+        const order = orderOf(60)
+        const base = cams.map((c) => place(order, c))
+        const g0 = guardedBlocks({ order, cameras: base, awarenessKnown: true, now: NOW })
+        const g1 = guardedBlocks({ order, cameras: [...base, place(order, extra)], awarenessKnown: true, now: NOW })
+        for (const id of g0) if (!g1.has(id)) return false
+        return true
+      }),
     )
   })
 
@@ -63,7 +72,7 @@ describe('PBT: spatial guard (P6.2 correctness core)', () => {
       fc.property(fc.integer({ min: 0, max: 60 }), rawCams, (n, cams) => {
         const order = orderOf(n)
         const cameras = n === 0 ? [] : cams.map((c) => place(order, c))
-        return guardedBlocks({ order, cameras, awarenessKnown: false, now: 300_000 }).size === n
+        return guardedBlocks({ order, cameras, awarenessKnown: false, now: NOW }).size === n
       }),
     )
   })
@@ -72,18 +81,18 @@ describe('PBT: spatial guard (P6.2 correctness core)', () => {
     pbtAssert(
       fc.property(fc.integer({ min: 1, max: 60 }), rawCams, (n, cams) => {
         const order = orderOf(n)
-        const cameras = [...cams.map((c) => place(order, c)), { clientId: 99, blockId: 'ghost-not-in-order', lastSeenMs: 100 }]
-        return guardedBlocks({ order, cameras, awarenessKnown: true, now: 100 }).size === n
+        const cameras = [...cams.map((c) => place(order, c)), { clientId: 99, blockId: 'ghost-not-in-order', lastSeenMs: NOW }]
+        return guardedBlocks({ order, cameras, awarenessKnown: true, now: NOW }).size === n
       }),
     )
   })
 
-  it('always guards pinned blocks that exist in the order', () => {
+  it('always guards existing pinned blocks under awarenessKnown:true', () => {
     pbtAssert(
-      fc.property(fc.integer({ min: 1, max: 60 }), rawCams, fc.array(fc.nat(), { maxLength: 5 }), fc.boolean(), (n, cams, pinSel, known) => {
+      fc.property(fc.integer({ min: 1, max: 60 }), rawCams, fc.array(fc.nat(), { minLength: 1, maxLength: 5 }), (n, cams, pinSel) => {
         const order = orderOf(n)
         const pinned = pinSel.map((s) => order[s % n])
-        const g = guardedBlocks({ order, cameras: cams.map((c) => place(order, c)), pinned, awarenessKnown: known, now: 300_000 })
+        const g = guardedBlocks({ order, cameras: cams.map((c) => place(order, c)), pinned, awarenessKnown: true, now: NOW })
         for (const p of pinned) if (!g.has(p)) return false
         return true
       }),
@@ -106,7 +115,7 @@ describe('PBT: spatial guard (P6.2 correctness core)', () => {
             cameras: [{ clientId: 1, blockId, lastSeenMs: lastSeen }],
             awarenessKnown: true,
             now: lastSeen + delta,
-            config: { radius: 4, graceMs: grace },
+            config: { graceMs: grace },
           })
           return g.has(blockId) === (delta <= grace)
         },
@@ -123,7 +132,7 @@ describe('PBT: spatial guard (P6.2 correctness core)', () => {
           cameras: cams.map((c) => place(order, c)),
           pinned: pinSel.map((s) => order[s % n]),
           awarenessKnown: known,
-          now: 200_000,
+          now: NOW,
         }
         const g = guardedBlocks(inp)
         const cold = coldBlocks(inp)
