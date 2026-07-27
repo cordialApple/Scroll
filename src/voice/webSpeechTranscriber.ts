@@ -50,6 +50,10 @@ export type SpeechRecognitionCtor = new () => SpeechRecognitionLike
 export interface WebSpeechOptions {
   lang?: string
   recognitionCtor?: SpeechRecognitionCtor
+  restartBaseMs?: number
+  restartMaxMs?: number
+  maxTransientRestarts?: number
+  scheduleRestart?: (fn: () => void, ms: number) => void
 }
 
 type GlobalWithSpeech = {
@@ -79,6 +83,8 @@ function classify(error: string): TranscriberErrorKind {
     case 'not-allowed':
     case 'service-not-allowed':
       return 'permission-denied'
+    case 'audio-capture':
+      return 'audio-capture'
     case 'no-speech':
       return 'no-speech'
     case 'network':
@@ -90,11 +96,21 @@ function classify(error: string): TranscriberErrorKind {
   }
 }
 
+function isInvalidState(err: unknown): boolean {
+  // A native InvalidStateError is a DOMException, which is NOT instanceof Error in browsers — duck-type.
+  return typeof err === 'object' && err !== null && (err as { name?: unknown }).name === 'InvalidStateError'
+}
+
 // Web Speech adapter for the Transcriber interface. Maps native onresult (a cumulative results list)
 // to per-segment deltas on finals and a full provisional tail on interim, per transcriber.ts's
 // TranscriptEvent contract. Transient no-speech/network end the session; onend auto-restarts while
 // still intended-running (mirrors the reconnect-code discipline). not-allowed/audio-capture are hard.
 export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcriber {
+  const restartBaseMs = opts.restartBaseMs ?? 300
+  const restartMaxMs = opts.restartMaxMs ?? 5000
+  const maxTransientRestarts = opts.maxTransientRestarts ?? 6
+  const scheduleRestart = opts.scheduleRestart ?? ((fn, ms) => void setTimeout(fn, ms))
+
   let state: TranscriberState = 'idle'
   let recognition: SpeechRecognitionLike | null = null
   let ctor: SpeechRecognitionCtor | null = null
@@ -102,6 +118,13 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
   // Count of results already emitted as finals this session — guards the delta path against
   // re-emitting a finalized segment if the native results list replays it.
   let finalizedCount = 0
+  // Consecutive transient-error restarts, and whether the last session ended on a transient error.
+  let transientStreak = 0
+  let endedTransient = false
+  let restartPending = false
+  // Bumped on every intentional start()/stop(); a scheduled restart from a prior epoch is stale and
+  // must no-op, or it would spawn an orphaned session over one the caller has already re-established.
+  let epoch = 0
 
   const results = new Set<(e: TranscriptEvent) => void>()
   const states = new Set<(s: TranscriberState) => void>()
@@ -122,8 +145,6 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
   const handleResult = (e: SpeechRecognitionEventLike) => {
     // stop() flips intendedRunning synchronously but state lags until the native onend; gate here so a
     // trailing final in the stop->onend window is cut off at the adapter, not just by the downstream guard.
-    // stop() flips intendedRunning synchronously but state lags until the native onend; gate here so a
-    // trailing final in the stop->onend window is cut off at the adapter, not just by the downstream guard.
     if (!intendedRunning) return
     let interim = ''
     for (let i = 0; i < e.results.length; i++) {
@@ -133,7 +154,12 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
         if (i >= finalizedCount) {
           finalizedCount = i + 1
           const text = transcript.trim()
-          if (text) emitResult({ text, isFinal: true })
+          if (text) {
+            // A committed final means the engine is healthy — clear transient-restart backoff. Reset on
+            // finals only (not bare interims), so a flapping recognizer that never commits still hits the cap.
+            transientStreak = 0
+            emitResult({ text, isFinal: true })
+          }
         }
       } else {
         interim += transcript
@@ -147,40 +173,91 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
     if (HARD_ERRORS.has(e.error)) {
       intendedRunning = false
       setState('error')
+      emitError({ kind, message: e.message })
+      return
     }
+    // [B5] an 'aborted' after an intentional stop() is expected teardown, not a fault to surface.
+    if (kind === 'aborted' && !intendedRunning) return
+    endedTransient = true
     emitError({ kind, message: e.message })
   }
 
   // onend fires after every session — a natural silence timeout, a stop(), or a transient error.
   // Restart iff the user still wants to listen and no hard error tore us down.
   const handleEnd = () => {
-    if (intendedRunning && state !== 'error' && ctor) {
-      beginSession(ctor)
+    const reasonTransient = endedTransient
+    endedTransient = false
+    const c = ctor
+    if (!(intendedRunning && state !== 'error' && c)) {
+      recognition = null
+      if (state !== 'error') setState('idle')
       return
     }
-    recognition = null
-    if (state !== 'error') setState('idle')
+    if (reasonTransient) {
+      transientStreak++
+      if (transientStreak > maxTransientRestarts) {
+        // [B3] persistent transient failure (e.g. network down) stops looping and surfaces a hard state.
+        intendedRunning = false
+        recognition = null
+        setState('error')
+        emitError({ kind: 'network', message: 'restart limit exceeded' })
+        return
+      }
+      if (transientStreak >= 2) {
+        // First transient restart is immediate; later ones back off with a cap, deduped against pile-up.
+        if (restartPending) return
+        restartPending = true
+        const delay = Math.min(restartBaseMs * 2 ** (transientStreak - 2), restartMaxMs)
+        const scheduledEpoch = epoch
+        scheduleRestart(() => {
+          restartPending = false
+          if (epoch === scheduledEpoch && intendedRunning && state !== 'error') beginSession(c)
+        }, delay)
+        return
+      }
+    }
+    beginSession(c)
+  }
+
+  function detach(rec: SpeechRecognitionLike) {
+    rec.onresult = null
+    rec.onerror = null
+    rec.onend = null
+    rec.onstart = null
+    // Belt-and-suspenders: abort the superseded instance so no path can leave a live mic orphaned.
+    // Handlers are already nulled, so the resulting onend is a no-op and can't trigger a restart.
+    try {
+      rec.abort()
+    } catch {
+      /* already inactive */
+    }
   }
 
   function beginSession(c: SpeechRecognitionCtor) {
+    // [B2] a superseded instance's late onend/onresult/onerror must not fire into the new session.
+    if (recognition) detach(recognition)
     const rec = new c()
     rec.continuous = true
     rec.interimResults = true
     rec.maxAlternatives = 1
     const g = globalThis as unknown as GlobalWithSpeech
     rec.lang = opts.lang ?? g.navigator?.language ?? 'en-US'
-    rec.onresult = handleResult
-    rec.onerror = handleError
-    rec.onend = handleEnd
-    rec.onstart = () => setState('listening')
+    rec.onresult = (e) => recognition === rec && handleResult(e)
+    rec.onerror = (e) => recognition === rec && handleError(e)
+    rec.onend = () => recognition === rec && handleEnd()
+    rec.onstart = () => recognition === rec && setState('listening')
     recognition = rec
     finalizedCount = 0
     // start() throws InvalidStateError if the recognizer is already running [C3]; our intendedRunning
-    // guard makes a double-start from callers a no-op, but swallow the native throw defensively.
+    // guard makes a double-start from callers a no-op, so that specific throw is benign.
     try {
       rec.start()
-    } catch {
-      /* already running */
+    } catch (err) {
+      // [B1] only the already-running InvalidStateError is swallowed; anything else is a real failure.
+      if (isInvalidState(err)) return
+      intendedRunning = false
+      setState('error')
+      emitError({ kind: 'unknown', message: err instanceof Error ? err.message : String(err) })
     }
   }
 
@@ -197,10 +274,15 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
         return
       }
       intendedRunning = true
+      transientStreak = 0
+      endedTransient = false
+      restartPending = false
+      epoch++
       beginSession(ctor)
     },
     stop: () => {
       intendedRunning = false
+      epoch++
       recognition?.stop()
     },
     onResult: (cb) => {

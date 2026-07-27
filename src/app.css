@@ -302,3 +302,113 @@
   border-radius: 50%;
   background: var(--peer, #8a8a8a);
 }
+
+/* ---- voice / dictation ---- */
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mic-btn:hover {
+  background: var(--active-tint);
+}
+.mic-btn .mic-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+.mic-on {
+  color: var(--on-primary-container);
+  background: var(--primary-container);
+  border-color: var(--primary-container);
+}
+.mic-on .mic-glyph {
+  animation: mic-pulse 1.1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-on .mic-glyph { animation: none; }
+}
+.mic-err {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.mic-interim {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  max-width: min(680px, 90vw);
+  z-index: 40;
+  padding: 8px 16px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-container-high);
+  border: 1px dashed var(--outline);
+  box-shadow: var(--elevation-dialog);
+  font-size: 15px;
+  font-style: italic;
+  color: var(--on-surface-variant);
+  pointer-events: none;
+}
+.mic-interim-text::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--caret);
+  animation: mic-caret 1s step-end infinite;
+}
+@keyframes mic-caret {
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic-interim-text::after { animation: none; }
+}
+.mic-interim-hint {
+  opacity: 0.7;
+}
+
+.mic-toast {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(520px, 92vw);
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-container-highest);
+  border: 1px solid var(--error);
+  box-shadow: var(--elevation-dialog);
+  font-size: 13px;
+  color: var(--on-surface);
+}
+.mic-toast-x {
+  border: none;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.mic-toast-x:hover {
+  color: var(--on-surface);
+}
