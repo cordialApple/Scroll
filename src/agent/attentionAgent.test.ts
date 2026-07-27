@@ -3,7 +3,7 @@ import * as Y from 'yjs'
 import { createDoc, appendBlock, blockViews } from '../doc/model'
 import type { HeadlessPeer, ProposalOutcome } from '../peer/headlessPeer'
 import type { RemoteCamera } from '../doc/awareness'
-import { createAttentionAgent, normalizeWhitespaceActor } from './attentionAgent'
+import { createAttentionAgent, normalizeWhitespaceActor, runAttentionAgent, type TickResult } from './attentionAgent'
 
 function makeDoc(n: number): { doc: Y.Doc; ids: string[] } {
   const doc = createDoc()
@@ -20,6 +20,14 @@ const remoteCam = (clientId: number, blockId: string): RemoteCamera => ({
 const monotonic = () => {
   let n = 0
   return () => ++n
+}
+
+async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now()
+  while (!pred()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timed out')
+    await new Promise((r) => setTimeout(r, 5))
+  }
 }
 
 interface FakeOpts {
@@ -112,6 +120,45 @@ describe('createAttentionAgent — the native attention-anchored driver (P6.5, #
     const { peer, proposeCount } = fakePeer(doc, { cameras: [laundered] })
     const agent = createAttentionAgent(peer, { now: () => 0 })
     expect(await agent.tick()).toEqual({ targetId: null, proposed: false })
+    expect(proposeCount()).toBe(0)
+  })
+
+  // Single-flight (CF-1): a second tick() racing an in-flight one — before its propose await settles — must
+  // get an idle no-op, not run concurrently and last-write-wins clobber the ObserverState fold. `ticking` is
+  // set true before runTick's await suspends, so the racer short-circuits before it ever reaches propose.
+  it('is single-flight: a tick racing an in-flight tick idles instead of clobbering state', async () => {
+    const { doc, ids } = makeDoc(30)
+    const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
+    const agent = createAttentionAgent(peer, { now: monotonic() })
+    const [r1, r2] = await Promise.all([agent.tick(), agent.tick()])
+    expect(r1.proposed).toBe(true)
+    expect(r2).toEqual({ targetId: null, proposed: false, reason: 'tick in flight' })
+    expect(proposeCount()).toBe(1)
+  })
+})
+
+describe('runAttentionAgent — the driving loop + lifecycle (P6.6, #70)', () => {
+  it('loops ticks until stop(), then quiesces (no ticks after stop)', async () => {
+    const { doc, ids } = makeDoc(30)
+    const { peer } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
+    const results: TickResult[] = []
+    const runner = runAttentionAgent(peer, { intervalMs: 5, now: monotonic(), onTick: (r) => results.push(r) })
+    await waitFor(() => results.length >= 3)
+    runner.stop()
+    const atStop = results.length
+    await new Promise((r) => setTimeout(r, 40))
+    expect(results.length).toBe(atStop)
+    expect(results.some((r) => r.proposed)).toBe(true)
+  })
+
+  it('stop() before the first scheduled tick fires does no work', async () => {
+    const { doc, ids } = makeDoc(30)
+    const { peer, proposeCount } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
+    const results: TickResult[] = []
+    const runner = runAttentionAgent(peer, { intervalMs: 5, now: monotonic(), onTick: (r) => results.push(r) })
+    runner.stop()
+    await new Promise((r) => setTimeout(r, 30))
+    expect(results.length).toBe(0)
     expect(proposeCount()).toBe(0)
   })
 })

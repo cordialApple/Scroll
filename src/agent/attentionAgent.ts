@@ -49,8 +49,22 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
   const actor = opts.actor ?? normalizeWhitespaceActor
   const clock = opts.now ?? (() => performance.now())
   let state = emptyObserverState
+  let ticking = false
 
   async function tick(): Promise<TickResult> {
+    // Single-flight: a tick reads `state` before its `await` and writes it after, so two overlapping ticks
+    // would last-write-wins clobber the fold (#66 F-06). runAttentionAgent never overlaps (strictly
+    // sequential), but any caller that races tick() gets an idle no-op instead of corrupted state.
+    if (ticking) return { targetId: null, proposed: false, reason: 'tick in flight' }
+    ticking = true
+    try {
+      return await runTick()
+    } finally {
+      ticking = false
+    }
+  }
+
+  async function runTick(): Promise<TickResult> {
     const doc = peer.provider.document
     const order = blockOrder(doc)
     const cameras = resolveCameras(peer.cameras(), order, redirectSource(doc))
@@ -82,4 +96,44 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
   }
 
   return { tick, state: () => state }
+}
+
+export interface AgentRunner {
+  stop(): void
+}
+
+export interface RunAttentionAgentOptions extends AttentionAgentOptions {
+  intervalMs?: number
+  onTick?: (result: TickResult) => void
+}
+
+// Drive an AttentionAgent on a fixed cadence until stop(). Each tick fully settles before the next is
+// scheduled (setTimeout AFTER the await, not setInterval), so a slow propose round-trip can't let ticks pile
+// up and overlap; tick()'s single-flight guard is the backstop. tick() never rejects (it catches actor
+// throws), but the loop swallows anything regardless so one bad round can't kill it. onTick observes each
+// result — the milestone e2e watches cold commits land through it.
+export function runAttentionAgent(peer: HeadlessPeer, opts: RunAttentionAgentOptions = {}): AgentRunner {
+  const agent = createAttentionAgent(peer, opts)
+  const intervalMs = opts.intervalMs ?? 1000
+  let running = true
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const runOnce = async () => {
+    try {
+      const result = await agent.tick()
+      if (running) opts.onTick?.(result)
+    } catch {
+      // unreachable in practice (tick() catches actor throws) — but a runner must never die on a rejection
+    } finally {
+      if (running) timer = setTimeout(runOnce, intervalMs)
+    }
+  }
+  timer = setTimeout(runOnce, 0)
+
+  return {
+    stop() {
+      running = false
+      if (timer) clearTimeout(timer)
+    },
+  }
 }
