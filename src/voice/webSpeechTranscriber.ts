@@ -120,6 +120,11 @@ export function createWebSpeechTranscriber(opts: WebSpeechOptions = {}): Transcr
   }
 
   const handleResult = (e: SpeechRecognitionEventLike) => {
+    // stop() flips intendedRunning synchronously but state lags until the native onend; gate here so a
+    // trailing final in the stop->onend window is cut off at the adapter, not just by the downstream guard.
+    // stop() flips intendedRunning synchronously but state lags until the native onend; gate here so a
+    // trailing final in the stop->onend window is cut off at the adapter, not just by the downstream guard.
+    if (!intendedRunning) return
     let interim = ''
     for (let i = 0; i < e.results.length; i++) {
       const r = e.results[i]

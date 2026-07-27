@@ -206,6 +206,28 @@ describe('P5.2 web speech transcriber — native SpeechRecognition behind the in
     expect(() => t.start()).not.toThrow()
   })
 
+  it('cuts off a trailing final that arrives in the stop -> onend window', () => {
+    // Real SpeechRecognition emits onend asynchronously, so a final can fire after stop() while
+    // state still lags at 'listening'. A deferred-onend mock models that window.
+    const m = mockCtor((r) => {
+      r.stop = function () {
+        this.stopped++
+        this.running = false
+        // native onend intentionally NOT fired inline — the window stays open
+      }
+    })
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const finals: string[] = []
+    t.onResult((e) => e.isFinal && finals.push(e.text))
+
+    t.start()
+    t.stop()
+    expect(t.state).toBe('listening') // state still lags — onend hasn't fired
+    m.last().fireResult(0, [{ transcript: 'stray', isFinal: true }])
+
+    expect(finals).toEqual([]) // cut off at the adapter by the intendedRunning gate
+  })
+
   it('degrades cleanly when SpeechRecognition is unavailable', () => {
     const t = createWebSpeechTranscriber({}) // no ctor, none on globalThis in node env
     const errs: TranscriberError[] = []
