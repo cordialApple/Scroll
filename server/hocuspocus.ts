@@ -4,6 +4,7 @@ import { bootstrapSchema, createPostgresStore } from './db/store'
 import { createPersistenceExtension } from './db/persistenceExtension'
 import { createIngressExtension, type IngressOptions } from './db/ingressExtension'
 import { createProposeCommitExtension, type ProposalGuard } from './db/proposeCommit'
+import { createSpatialProposalGuard } from './agent/spatialProposalGuard'
 
 export interface ScrollServerOptions {
   port: number
@@ -11,8 +12,9 @@ export interface ScrollServerOptions {
   databaseUrl?: string
   maxUpdateBytes?: number
   authenticate?: IngressOptions['authenticate']
-  // contract-1 propose/commit apply-time guard (spatial/pinned/lease). Injected so the capability stays
-  // generic; default allows every proposal (the concrete predicate lands with the P6 doc model).
+  // contract-1 propose/commit apply-time guard. Injected so the capability stays generic; defaults to the
+  // P6.3 concrete spatial guard (refuses a proposal touching any live camera's residency band). A room
+  // with no published cameras guards nothing, so this is behaviour-compatible with the old allow-all.
   proposalGuard?: ProposalGuard
   // Compaction (onStoreDocument) debounce cadence — Hocuspocus defaults 2000/10000ms. Exposed so a
   // durability harness can push it past the test window and prove recovery from the append log alone
@@ -41,7 +43,10 @@ export async function createScrollServer(opts: ScrollServerOptions): Promise<Hoc
     extensions: [
       createIngressExtension({ maxUpdateBytes: opts.maxUpdateBytes, authenticate: opts.authenticate }),
       persistence.extension,
-      createProposeCommitExtension(persistence.commitProposal, { guard: opts.proposalGuard, maxUpdateBytes: opts.maxUpdateBytes }),
+      createProposeCommitExtension(persistence.commitProposal, {
+        guard: opts.proposalGuard ?? createSpatialProposalGuard(),
+        maxUpdateBytes: opts.maxUpdateBytes,
+      }),
       // Hocuspocus registers its own process-wide SIGINT/SIGTERM/SIGQUIT handler on every listen()
       // call and never removes it (even after destroy()) — in a test run that creates many servers,
       // one real termination signal fires all of them, each re-destroying its own already-destroyed

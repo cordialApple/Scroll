@@ -1,4 +1,6 @@
 import * as Y from 'yjs'
+import { performance } from 'node:perf_hooks'
+import type { Awareness } from 'y-protocols/awareness'
 import type { Extension } from '@hocuspocus/server'
 import { CAP_PROPOSE, peerFromContext, type PeerIdentity } from '../auth/peerToken'
 
@@ -6,13 +8,17 @@ export type GuardResult = { ok: true } | { ok: false; reason: string }
 
 // contract-1 apply-time guard: the single-threaded authority evaluates this against the authoritative
 // document at commit, closing the check-then-act race an actor's read-time revalidation cannot. P4.3
-// ships the seam with an allow-all default; the concrete spatial-band / pinned-block / lease
-// content-hash predicate lands with the P6 doc model. Injected (Strategy), so the capability stays
-// generic and consumer-blind — the room owns the policy, no peer concept leaks in.
-export type ProposalGuard = (
-  update: Uint8Array,
-  ctx: { peer: PeerIdentity; document: Y.Doc },
-) => GuardResult
+// shipped the seam allow-all; P6.3 lands the concrete spatial-band predicate (server/agent/
+// spatialProposalGuard.ts). Injected (Strategy) so the capability stays generic and consumer-blind — the
+// room owns the policy. `awareness` carries the peer camera set the spatial predicate reads; `now` is the
+// authority clock for the fail-closed grace window. Both are room-level context, not a peer concept.
+export interface ProposalGuardCtx {
+  peer: PeerIdentity
+  document: Y.Doc
+  awareness: Awareness | null
+  now: number
+}
+export type ProposalGuard = (update: Uint8Array, ctx: ProposalGuardCtx) => GuardResult
 
 export const allowAllGuard: ProposalGuard = () => ({ ok: true })
 
@@ -27,6 +33,8 @@ export interface EvaluateProposalArgs {
   document: Y.Doc
   guard: ProposalGuard
   maxUpdateBytes: number
+  awareness?: Awareness | null
+  now?: number
 }
 
 // Pure authority decision for one proposal. Proposals arrive as stateless messages, so they bypass the
@@ -47,7 +55,7 @@ export function evaluateProposal(args: EvaluateProposalArgs): ProposalDecision {
   } catch {
     return { commit: false, reason: 'proposal rejected: undecodable update payload' }
   }
-  const verdict = guard(update, { peer, document })
+  const verdict = guard(update, { peer, document, awareness: args.awareness ?? null, now: args.now ?? performance.now() })
   if (!verdict.ok) return { commit: false, reason: verdict.reason }
   return { commit: true }
 }
@@ -142,7 +150,10 @@ export function createProposeCommitExtension(commitProposal: CommitProposal, opt
         }
 
         const peer = peerFromContext(connection.context)
-        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes })
+        // Hocuspocus's Document owns the room-level awareness; hand it to the guard as room context. The
+        // authority clock is monotonic (performance.now) so a wall-clock step can't corrupt grace math.
+        const awareness = document.awareness ?? null
+        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes, awareness, now: performance.now() })
 
         if (decision.commit) await commitProposal(documentName, document, update)
         connection.sendStateless(result(proposal.id, decision))
