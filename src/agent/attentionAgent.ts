@@ -92,7 +92,8 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
     // must not have to wrap every tick in try/catch.
     try {
       // Stamp provenance in the driver, not the actor: every injectable actor gets agent-authorship for free,
-      // and it rides the SAME proposal as the edit — one commit, guard-checked as a single op.
+      // and it rides the SAME proposal as the edit — one commit the authority guard-checks as a single op
+      // (the guard signature includes lastAuthor, so a stamp into a live reader's band is refused too, #72).
       const outcome = await peer.propose((fork) => {
         actor(fork, target)
         setBlockAuthor(fork, target, AUTHOR_AGENT)

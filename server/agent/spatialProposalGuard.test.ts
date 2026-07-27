@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import { CAP_PROPOSE, type PeerIdentity } from '../auth/peerToken'
 import { evaluateProposal, type ProposalGuard } from '../db/proposeCommit'
 import { createSpatialProposalGuard } from './spatialProposalGuard'
-import { appendBlock, blocks, blockText, createDoc, insertBlockAfter, mergeIntoPrevious, setBlockText } from '../../src/doc/model'
+import { appendBlock, blocks, blockText, createDoc, insertBlockAfter, mergeIntoPrevious, setBlockAuthor, setBlockText } from '../../src/doc/model'
 
 const MAX = 8 * 1024 * 1024
 const proposer: PeerIdentity = { sub: 'agent-1', role: 'agent', caps: [CAP_PROPOSE], room: 'r' }
@@ -57,6 +57,23 @@ describe('createSpatialProposalGuard — commit-time spatial enforcement (P6.3)'
     const awareness = awarenessWithCamera(doc, ids[20]) // default band ~[16..27]
     const update = proposal(doc, (f) => setBlockText(f, ids[22], 'edited guarded'))
     expect(decide(doc, update, awareness, createSpatialProposalGuard())).toMatchObject({ commit: false })
+  })
+
+  // #72: an author-only proposal (just a lastAuthor stamp, no text/type change) is the shape the agent driver
+  // emits whenever its actor no-ops. The guard signature includes lastAuthor, so a stamp into a guarded band is
+  // refused just like a text edit — an author-only change is still an uncoordinated write under a live reader.
+  it('refuses an author-only proposal (a lastAuthor stamp) inside a live camera band (#72)', () => {
+    const { doc, ids } = seed(40)
+    const awareness = awarenessWithCamera(doc, ids[20])
+    const update = proposal(doc, (f) => setBlockAuthor(f, ids[22], 'agent'))
+    expect(decide(doc, update, awareness, createSpatialProposalGuard())).toMatchObject({ commit: false })
+  })
+
+  it('commits an author-only proposal on a COLD block far from every camera (#72)', () => {
+    const { doc, ids } = seed(40)
+    const awareness = awarenessWithCamera(doc, ids[5]) // band ~[1..12]
+    const update = proposal(doc, (f) => setBlockAuthor(f, ids[30], 'agent'))
+    expect(decide(doc, update, awareness, createSpatialProposalGuard())).toEqual({ commit: true })
   })
 
   it('refuses an insert INTO a guarded band but commits an insert ABOVE it', () => {

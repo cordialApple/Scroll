@@ -161,8 +161,15 @@ describe('P6.6 milestone: agent reorganizes cold regions, the spatial guard enfo
     const persistedViews = await storeViews(room)
     const persisted = persistedViews.map((v) => v.text)
     for (let i = BAND_LO; i <= BAND_HI; i++) expect(persisted[i]).toBe(`L${i} original`)
-    expect(order.some((id, i) => !bandIds.has(id) && persisted[i].includes('[agent]'))).toBe(true)
-    expect(persistedViews.some((v) => !bandIds.has(v.id) && v.author === AUTHOR_AGENT)).toBe(true)
+    // Provenance tied to the edit, PER block: EVERY cold block the agent text-edited (`[agent]` tag) ALSO
+    // carries author='agent' — a partial-stamp regression fails here, unlike a lone `.some`. ≥1 such block
+    // exists; and the human's band, never written, carries no authorship at all.
+    const agentEdited = persistedViews.filter((v) => v.text.includes('[agent]'))
+    expect(agentEdited.length).toBeGreaterThan(0)
+    for (const v of agentEdited) {
+      expect(bandIds.has(v.id)).toBe(false)
+      expect(v.author).toBe(AUTHOR_AGENT)
+    }
     for (let i = BAND_LO; i <= BAND_HI; i++) expect(persistedViews[i].author).toBeUndefined()
 
     // SUSPENDERS, the check-then-act race the commit-time guard exists for: build a diff against a block that

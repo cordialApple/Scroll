@@ -8,8 +8,10 @@ import {
   blockViewOf,
   blocks,
   createDoc,
+  mergeIntoPrevious,
   setBlockAuthor,
   setBlockText,
+  splitBlock,
 } from './model'
 
 const first = (doc: Y.Doc) => blocks(doc).get(0)
@@ -80,6 +82,38 @@ describe('block provenance (P6.7)', () => {
     const clone = createDoc()
     Y.applyUpdate(clone, Y.encodeStateAsUpdate(doc))
     expect(blockAuthor(blocks(clone).get(0))).toBe(AUTHOR_AGENT)
-    expect(id).toBe(blockViewOf(blocks(clone).get(0)).id)
+    expect(blockViewOf(blocks(clone).get(0))).toMatchObject({ id, author: AUTHOR_AGENT })
+  })
+
+  it('blockAuthor rejects a garbage lastAuthor value off the wire (not agent|human ⇒ undefined)', () => {
+    const doc = createDoc()
+    appendBlock(doc, 'paragraph', 'x')
+    blocks(doc).get(0).set('lastAuthor', 'martian')
+    expect(blockAuthor(blocks(doc).get(0))).toBeUndefined()
+  })
+
+  // Structural edits (#72 PF2): authorship follows CONTENT, so split/merge must NOT invent a 'human' stamp on
+  // unchanged text. The tail inherits the source author; merging two agent blocks stays agent.
+  it('splitBlock: the tail inherits the source author, in one transaction', () => {
+    const doc = createDoc()
+    const id = appendBlock(doc, 'paragraph', 'agent wrote all of this')
+    setBlockAuthor(doc, id, AUTHOR_AGENT)
+    let txns = 0
+    doc.on('afterTransaction', () => void txns++)
+    const tail = splitBlock(doc, id, 5)
+    expect(tail).not.toBeNull()
+    expect(txns).toBe(1) // tail-inherit rides splitBlock's single transact, not a separate stamp
+    expect(blockAuthor(blocks(doc).get(0))).toBe(AUTHOR_AGENT) // head keeps agent (content unchanged)
+    expect(blockAuthor(blocks(doc).get(1))).toBe(AUTHOR_AGENT) // tail inherits agent
+  })
+
+  it('mergeIntoPrevious: merging two agent blocks keeps the survivor agent (no false human overwrite)', () => {
+    const doc = createDoc()
+    const a = appendBlock(doc, 'paragraph', 'first')
+    const b = appendBlock(doc, 'paragraph', 'second')
+    setBlockAuthor(doc, a, AUTHOR_AGENT)
+    setBlockAuthor(doc, b, AUTHOR_AGENT)
+    expect(mergeIntoPrevious(doc, b, 1)).toBe(a)
+    expect(blockAuthor(blocks(doc).get(0))).toBe(AUTHOR_AGENT)
   })
 })

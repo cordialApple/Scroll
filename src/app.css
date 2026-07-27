@@ -268,7 +268,7 @@
 .block[data-author='agent'] {
   position: relative;
 }
-.block[data-author='agent']::before {
+.block[data-author='agent']::after {
   content: '';
   position: absolute;
   left: -20px;

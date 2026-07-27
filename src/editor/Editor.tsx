@@ -17,7 +17,6 @@ import {
   resolveBlockIndex,
   redirectSource,
   setBlockText,
-  setBlockAuthor,
   splitBlock,
   mergeIntoPrevious,
   AUTHOR_HUMAN,
@@ -290,14 +289,14 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     (id: string, text: string) => setBlockText(doc, id, text, hintOf(id), AUTHOR_HUMAN),
     [doc, hintOf],
   )
+  // Split/merge are STRUCTURAL — they relocate/concatenate existing text without re-authoring it, so they do
+  // NOT stamp 'human' (that would falsely relabel unchanged agent content). Authorship follows content: the
+  // split tail inherits the source author (in splitBlock); the merge survivor keeps its own. Only onEdit
+  // (actual typing) re-authors. (#72 PF2)
   const onSplit = useCallback(
     (id: string, caret: number) => {
-      const hint = hintOf(id)
-      const next = splitBlock(doc, id, caret, hint)
-      if (next) {
-        setBlockAuthor(doc, id, AUTHOR_HUMAN, hint)
-        pendingFocusRef.current = { blockId: next, caret: 0 }
-      }
+      const next = splitBlock(doc, id, caret, hintOf(id))
+      if (next) pendingFocusRef.current = { blockId: next, caret: 0 }
     },
     [doc, hintOf],
   )
@@ -306,10 +305,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       const idx = resolveBlockIndex(doc, id, hintOf(id))
       const prevLen = idx > 0 ? blockText(blocks(doc).get(idx - 1)).length : 0
       const prevId = mergeIntoPrevious(doc, id, idx)
-      if (prevId) {
-        setBlockAuthor(doc, prevId, AUTHOR_HUMAN, idx - 1)
-        pendingFocusRef.current = { blockId: prevId, caret: prevLen }
-      }
+      if (prevId) pendingFocusRef.current = { blockId: prevId, caret: prevLen }
     },
     [doc, hintOf],
   )

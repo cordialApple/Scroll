@@ -57,7 +57,8 @@ export function blockText(m: Y.Map<unknown>): Y.Text {
 }
 
 export function blockAuthor(m: Y.Map<unknown>): BlockAuthor | undefined {
-  return m.get('lastAuthor') as BlockAuthor | undefined
+  const v = m.get('lastAuthor')
+  return v === AUTHOR_AGENT ? AUTHOR_AGENT : v === AUTHOR_HUMAN ? AUTHOR_HUMAN : undefined
 }
 
 export function blockOrder(doc: Y.Doc): string[] {
@@ -164,6 +165,8 @@ export function splitBlock(doc: Y.Doc, id: string, charOffset: number, at?: numb
   const t = blockText(src)
   const tail = t.toString().slice(charOffset)
   const next = makeBlock(blockType(src), tail)
+  const author = blockAuthor(src)
+  if (author) next.set('lastAuthor', author) // structural split moves content; the tail keeps its origin
   doc.transact(() => {
     if (t.length > charOffset) t.delete(charOffset, t.length - charOffset)
     arr.insert(idx + 1, [next])
