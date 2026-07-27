@@ -32,12 +32,15 @@ function fakePeer(doc: Y.Doc, opts: FakeOpts = {}): { peer: HeadlessPeer; propos
   const peer = {
     provider: { document: doc, awareness: (opts.awareness ?? true) ? {} : null },
     cameras: () => opts.cameras ?? [],
-    propose: async (mutate: (fork: Y.Doc) => void) => {
+    // Sync arrow returning a resolved Promise — mirrors headlessPeer.propose exactly: mutate runs
+    // synchronously, so a throwing actor throws SYNCHRONOUSLY (not as a rejection), which is what makes the
+    // driver's finally-advances-the-LRU tooth exercise the real production failure mode.
+    propose: (mutate: (fork: Y.Doc) => void) => {
       count++
       const fork = createDoc()
       Y.applyUpdate(fork, Y.encodeStateAsUpdate(doc))
       mutate(fork)
-      return opts.respond ? opts.respond() : { committed: true }
+      return Promise.resolve(opts.respond ? opts.respond() : { committed: true })
     },
   }
   return { peer: peer as unknown as HeadlessPeer, proposeCount: () => count }
@@ -81,6 +84,35 @@ describe('createAttentionAgent — the native attention-anchored driver (P6.5, #
     const r2 = await agent.tick()
     expect(r1.targetId).not.toBeNull()
     expect(r2.targetId).not.toBe(r1.targetId)
+  })
+
+  // A throwing actor (a bug in a P6.6+ injected reorganization) must not wedge the loop: propose runs the
+  // actor synchronously, so without the driver's finally the LRU would never advance and this same target
+  // would be re-picked and re-thrown every tick, starving the rest. tick() resolves to an error result, and
+  // the next tick moves on.
+  it('does not wedge when the actor throws: surfaces an error result and still rotates the LRU', async () => {
+    const { doc, ids } = makeDoc(30)
+    const { peer } = fakePeer(doc, { cameras: [remoteCam(1, ids[15])] })
+    const agent = createAttentionAgent(peer, { actor: () => { throw new Error('boom') }, now: monotonic() })
+    const r1 = await agent.tick()
+    expect(r1).toMatchObject({ proposed: false, committed: false })
+    expect(r1.reason).toContain('boom')
+    const r2 = await agent.tick()
+    expect(r2.targetId).not.toBeNull()
+    expect(r2.targetId).not.toBe(r1.targetId)
+  })
+
+  // End to end through the driver: an unplaceable reader (raw block hard-deleted, no redirect, anchor
+  // laundered to a live block) must resolve NON-launderingly and fail closed — resolveCameras keeps 'ghost',
+  // guardedBlocks guards the whole doc, the driver idles. Guards the resolveCameras→observe wiring at the
+  // call site, which the split cameraResolve/observer unit tests never compose.
+  it('fails closed on an unplaceable reader (block gone, no redirect): idles without proposing', async () => {
+    const { doc, ids } = makeDoc(30)
+    const laundered: RemoteCamera = { clientId: 1, raw: { blockId: 'ghost', offset: 0 }, anchor: { blockId: ids[0], offset: 0 } }
+    const { peer, proposeCount } = fakePeer(doc, { cameras: [laundered] })
+    const agent = createAttentionAgent(peer, { now: () => 0 })
+    expect(await agent.tick()).toEqual({ targetId: null, proposed: false })
+    expect(proposeCount()).toBe(0)
   })
 })
 

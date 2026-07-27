@@ -21,8 +21,9 @@ export function normalizeWhitespaceActor(fork: Y.Doc, targetId: string): void {
 export interface AttentionAgentOptions {
   actor?: ReorganizeActor
   config?: Partial<GuardConfig>
-  // Monotonic clock (ms). Default performance.now — the LRU recency + grace math require monotonicity
-  // (coldScheduler precondition), which a wall clock can't guarantee.
+  // Strictly-increasing clock (ms). Default performance.now. Must advance every tick, not merely be
+  // non-decreasing: equal timestamps across ticks collapse the LRU tie-break to cold[0] and starve the rest
+  // of the cold set. A wall clock can't guarantee this; performance.now can.
   now?: () => number
 }
 
@@ -65,11 +66,19 @@ export function createAttentionAgent(peer: HeadlessPeer, opts: AttentionAgentOpt
     if (obs.targetId == null) return { targetId: null, proposed: false }
 
     const target = obs.targetId
-    const outcome = await peer.propose((fork) => actor(fork, target))
-    // Advance the LRU on any attempt (commit OR refuse) so a target refused because a reader just moved in
-    // isn't re-picked every tick — it rotates to the back and comes around after the rest of the cold set.
-    state = { tracked: state.tracked, lru: markWorked(state.lru, target, clock(), order) }
-    return { targetId: target, proposed: true, committed: outcome.committed, reason: outcome.reason }
+    // Advance the LRU on any attempt — commit, refuse, OR a throwing actor. headlessPeer.propose runs the
+    // actor SYNCHRONOUSLY, so a throw propagates out of the await; without the `finally` the advance would be
+    // skipped and the scheduler would re-pick this same target every tick, livelocking and starving the rest
+    // of the cold set. A crashing actor becomes a structured result, never a rejected tick — the P6.6 loop
+    // must not have to wrap every tick in try/catch.
+    try {
+      const outcome = await peer.propose((fork) => actor(fork, target))
+      return { targetId: target, proposed: true, committed: outcome.committed, reason: outcome.reason }
+    } catch (err) {
+      return { targetId: target, proposed: false, committed: false, reason: `actor error: ${String(err)}` }
+    } finally {
+      state = { tracked: state.tracked, lru: markWorked(state.lru, target, clock(), order) }
+    }
   }
 
   return { tick, state: () => state }
