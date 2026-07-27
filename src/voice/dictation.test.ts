@@ -130,6 +130,28 @@ describe('P5.1 dictation core — commit-on-final into the block model', () => {
     expect(blockTextString(doc, id)).toBe('untouched')
   })
 
+  // [C1] carry-forward: a real recognizer can fire a stray final around stop/error. The core must
+  // only mutate while the transcriber is listening — the guarantee lives on the interface, not the fake.
+  it('a final that arrives when not listening never mutates the doc', () => {
+    const doc = createDoc()
+    appendBlock(doc, 'paragraph', 'untouched')
+    const id = blockOrder(doc)[0]
+    const before = Y.encodeStateAsUpdate(doc)
+
+    const ft = createFakeTranscriber()
+    const dict = createDictation(doc, ft, () => ({ blockId: id, caret: 9 }))
+    let commits = 0
+    dict.observeCommit(() => commits++)
+
+    ft.start()
+    ft.stop() // back to idle
+    ft.emitFinalUnchecked('stray') // recognizer fires a spurious final after stop
+
+    expect(commits).toBe(0)
+    expect(blockTextString(doc, id)).toBe('untouched')
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before)
+  })
+
   // The P5 milestone seed: dictation grows a block ABOVE an anchored camera. The camera's
   // {blockId, offset} still resolves to the same content and scrollTop grows by exactly the
   // above-growth — the screen does not jump. A naive editor holding the old scrollTop lands early.

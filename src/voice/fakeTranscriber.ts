@@ -9,6 +9,8 @@ export interface FakeTranscriber extends Transcriber {
   emitInterim(text: string): void
   emitFinal(text: string): void
   emitError(err: TranscriberError): void
+  // Bypass the state gate to model a misbehaving recognizer that fires after stop/error.
+  emitFinalUnchecked(text: string): void
 }
 
 export function createFakeTranscriber(): FakeTranscriber {
@@ -47,6 +49,9 @@ export function createFakeTranscriber(): FakeTranscriber {
     },
     emitInterim: (text) => result({ text, isFinal: false }),
     emitFinal: (text) => result({ text, isFinal: true }),
+    emitFinalUnchecked: (text) => {
+      for (const cb of results) cb({ text, isFinal: true })
+    },
     emitError: (err) => {
       setState('error')
       for (const cb of errors) cb(err)
