@@ -4,13 +4,14 @@ interface Props {
   api: React.RefObject<EditorApi>
   onUndo: () => void
   onRedo: () => void
+  extra?: React.ReactNode
 }
 
 function fmt(cmd: string) {
   document.execCommand(cmd)
 }
 
-export function Toolbar({ api, onUndo, onRedo }: Props) {
+export function Toolbar({ api, onUndo, onRedo, extra }: Props) {
   return (
     <div className="toolbar-row">
       <div className="toolbar">
@@ -64,6 +65,12 @@ export function Toolbar({ api, onUndo, onRedo }: Props) {
             merge anchor
           </button>
         </Group>
+        {extra && (
+          <>
+            <Sep />
+            <Group>{extra}</Group>
+          </>
+        )}
       </div>
     </div>
   )

@@ -17,6 +17,12 @@ function resultsEvent(resultIndex: number, segs: Seg[]) {
   return { resultIndex, results }
 }
 
+function invalidState(): Error {
+  const e = new Error('recognition already started')
+  e.name = 'InvalidStateError'
+  return e
+}
+
 class MockRecognition implements SpeechRecognitionLike {
   continuous = false
   interimResults = false
@@ -30,10 +36,11 @@ class MockRecognition implements SpeechRecognitionLike {
   stopped = 0
   running = false
   throwOnStart = false
+  startError: Error = invalidState()
 
   start() {
-    if (this.throwOnStart) throw new Error('InvalidStateError')
-    if (this.running) throw new Error('InvalidStateError')
+    if (this.throwOnStart) throw this.startError
+    if (this.running) throw invalidState()
     this.running = true
     this.started++
     this.onstart?.()
@@ -200,10 +207,146 @@ describe('P5.2 web speech transcriber — native SpeechRecognition behind the in
     expect(m.instances.length).toBe(1)
   })
 
-  it('swallows a native start() throw defensively', () => {
-    const m = mockCtor((r) => (r.throwOnStart = true))
+  it('swallows an already-running InvalidStateError from start() [C3]', () => {
+    const m = mockCtor((r) => (r.throwOnStart = true)) // startError defaults to InvalidStateError
     const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
     expect(() => t.start()).not.toThrow()
+    expect(t.state).not.toBe('error')
+    expect(errs).toEqual([])
+  })
+
+  it('surfaces a non-InvalidStateError start() throw as an error ([B1])', () => {
+    const boom = new Error('boom')
+    boom.name = 'NotSupportedError'
+    const m = mockCtor((r) => {
+      r.throwOnStart = true
+      r.startError = boom
+    })
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+    t.start()
+    expect(t.state).toBe('error')
+    expect(errs).toEqual([{ kind: 'unknown', message: 'boom' }])
+  })
+
+  it('classifies audio-capture as a hard error and does not restart ([B4])', () => {
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+
+    t.start()
+    m.last().fireError('audio-capture', 'no mic')
+    expect(t.state).toBe('error')
+    expect(errs).toEqual([{ kind: 'audio-capture', message: 'no mic' }])
+
+    m.last().fireEnd()
+    expect(t.state).toBe('error')
+    expect(m.instances.length).toBe(1)
+  })
+
+  it('classifies service-not-allowed as a hard permission-denied error ([B4])', () => {
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+
+    t.start()
+    m.last().fireError('service-not-allowed')
+    expect(t.state).toBe('error')
+    expect(errs.map((e) => e.kind)).toEqual(['permission-denied'])
+    m.last().fireEnd()
+    expect(m.instances.length).toBe(1)
+  })
+
+  it('does not surface an aborted error after an intentional stop() ([B5])', () => {
+    // stop() flips intendedRunning false, then the native teardown fires 'aborted' + onend.
+    const m = mockCtor((r) => {
+      r.stop = function () {
+        this.stopped++
+        this.running = false
+        this.onerror?.({ error: 'aborted' })
+        this.onend?.()
+      }
+    })
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+
+    t.start()
+    t.stop()
+    expect(errs).toEqual([])
+    expect(t.state).toBe('idle')
+  })
+
+  it('neutralizes a superseded recognizer instance ([B2] instance-identity guard)', () => {
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const finals: string[] = []
+    t.onResult((e) => e.isFinal && finals.push(e.text))
+
+    t.start()
+    const first = m.last()
+    first.fireEnd() // silence-timeout restart -> instance 2, first detached
+    expect(m.instances.length).toBe(2)
+
+    first.fireResult(0, [{ transcript: 'stale', isFinal: true }]) // late callback from old instance
+    first.fireEnd() // late end from old instance
+    expect(finals).toEqual([]) // ignored, no stray final
+    expect(m.instances.length).toBe(2) // no duplicate restart
+
+    t.stop()
+  })
+
+  it('backs off and gives up after repeated transient failures ([B3])', () => {
+    const delays: number[] = []
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({
+      recognitionCtor: m.ctor,
+      restartBaseMs: 100,
+      restartMaxMs: 1000,
+      maxTransientRestarts: 4,
+      scheduleRestart: (fn, ms) => {
+        delays.push(ms)
+        fn() // run synchronously to drive the streak deterministically
+      },
+    })
+    const errs: TranscriberError[] = []
+    t.onError((e) => errs.push(e))
+
+    t.start()
+    for (let i = 0; i < 6; i++) {
+      m.last().fireError('network')
+      m.last().fireEnd()
+      if (t.state === 'error') break
+    }
+
+    expect(t.state).toBe('error')
+    expect(errs.at(-1)).toEqual({ kind: 'network', message: 'restart limit exceeded' })
+    // First transient restart is immediate (unscheduled); later ones back off, increasing and capped.
+    expect(delays.length).toBeGreaterThan(0)
+    expect(delays).toEqual([...delays].sort((a, b) => a - b))
+    expect(Math.max(...delays)).toBeLessThanOrEqual(1000)
+  })
+
+  it('never double-inserts when the native results list shrinks/rebases ([A1] fail-safe)', () => {
+    const m = mockCtor()
+    const t = createWebSpeechTranscriber({ recognitionCtor: m.ctor })
+    const finals: string[] = []
+    t.onResult((e) => e.isFinal && finals.push(e.text))
+
+    t.start()
+    const r = m.last()
+    r.fireResult(0, [
+      { transcript: 'one', isFinal: true },
+      { transcript: 'two', isFinal: true },
+    ])
+    // A hypothetical shrink/rebase to a shorter list must never replay a finalized index.
+    r.fireResult(0, [{ transcript: 'one', isFinal: true }])
+    expect(finals).toEqual(['one', 'two'])
   })
 
   it('cuts off a trailing final that arrives in the stop -> onend window', () => {

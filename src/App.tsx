@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { openDoc } from './doc/persistence'
-import { blocks, appendBlock, blockOrder } from './doc/model'
+import { blocks, appendBlock, blockOrder, blockTextString } from './doc/model'
 import { insertAbove } from './dev/synthetic'
 import { loadCamera } from './doc/camera'
 import { MenuBar } from './chrome/MenuBar'
 import { Toolbar } from './chrome/Toolbar'
+import { MicButton } from './chrome/MicButton'
+import { useVoice } from './voice/useVoice'
 import { PresenceBar } from './chrome/PresenceBar'
 import { createPresence, type Presence } from './doc/awareness'
 import { makePresenceUser } from './doc/presenceUser'
@@ -77,6 +79,12 @@ function HomeDoc() {
   const undoRef = useRef<Y.UndoManager | null>(null)
   const initialAnchor = useRef<Anchor | null>(null)
 
+  const voiceFake = useMemo(
+    () => import.meta.env.DEV && new URLSearchParams(window.location.search).get('voice') === 'fake',
+    [],
+  )
+  const voice = useVoice(handle.doc, apiRef, { fake: voiceFake })
+
   useEffect(() => {
     let alive = true
     handle.whenSynced.then(() => {
@@ -94,6 +102,8 @@ function HomeDoc() {
           create_doc_es,
           listEndpoints,
           presence,
+          voice,
+          blockTextString,
         }
       }
       setSynced(true)
@@ -122,6 +132,7 @@ function HomeDoc() {
         api={apiRef}
         onUndo={() => undoRef.current?.undo()}
         onRedo={() => undoRef.current?.redo()}
+        extra={<MicButton transcriber={voice.transcriber} dictation={voice.dictation} />}
       />
       <Editor
         ref={apiRef}

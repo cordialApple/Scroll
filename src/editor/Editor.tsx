@@ -35,7 +35,8 @@ import {
 import { saveCamera } from '../doc/camera'
 import { insertAbove, deleteAbove } from '../dev/synthetic'
 import { Block } from './Block'
-import { setCaretOffset } from './caret'
+import { getCaretOffset, setCaretOffset } from './caret'
+import type { DictationTarget } from '../voice/dictation'
 
 const OVERSCAN = 1200
 const EVICT_MARGIN = 500
@@ -47,6 +48,7 @@ export interface EditorApi {
   mergeAnchorAway(): void
   anchorId(): string
   heightsSize(): number
+  dictationTarget(): DictationTarget | null
 }
 
 interface Props {
@@ -72,6 +74,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   const suppressUntilRef = useRef(0)
   const pendingFocusRef = useRef<{ blockId: string; caret: number } | null>(null)
   const settleRef = useRef<{ key: string; passes: number }>({ key: '', passes: 0 })
+  const lastTargetRef = useRef<DictationTarget | null>(null)
   const mutationSeqRef = useRef(0)
   const correctedSeqRef = useRef(0)
   const restorePendingRef = useRef(initialAnchor != null)
@@ -223,6 +226,25 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     }
   })
 
+  // Track the caret block+offset so dictation has a target even after focus moves to the mic button.
+  useEffect(() => {
+    const onSel = () => {
+      const scroller = scrollRef.current
+      const sel = window.getSelection()
+      if (!scroller || !sel || sel.rangeCount === 0) return
+      let node: Node | null = sel.getRangeAt(0).startContainer
+      while (node && node !== scroller) {
+        if (node instanceof HTMLElement && node.dataset.blockId) {
+          lastTargetRef.current = { blockId: node.dataset.blockId, caret: getCaretOffset(node) }
+          return
+        }
+        node = node.parentNode
+      }
+    }
+    document.addEventListener('selectionchange', onSel)
+    return () => document.removeEventListener('selectionchange', onSel)
+  }, [])
+
   useEffect(() => {
     const scroller = scrollRef.current
     if (!scroller || typeof ResizeObserver === 'undefined') return
@@ -295,6 +317,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       },
       anchorId: () => effAnchor.blockId,
       heightsSize: () => heightsRef.current.size,
+      dictationTarget: () => lastTargetRef.current,
     }),
     [doc, effAnchor.blockId, model],
   )

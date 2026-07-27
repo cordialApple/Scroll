@@ -4,6 +4,7 @@ export type TranscriberErrorKind =
   | 'permission-denied'
   | 'no-speech'
   | 'network'
+  | 'audio-capture'
   | 'unsupported'
   | 'aborted'
   | 'unknown'
