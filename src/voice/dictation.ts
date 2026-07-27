@@ -37,6 +37,8 @@ export function createDictation(
   }
 
   const onResult = (e: TranscriptEvent) => {
+    // A real recognizer can fire a late/spurious final around end/error; only mutate while listening.
+    if (transcriber.state !== 'listening') return
     if (!e.isFinal) {
       setInterim(e.text)
       return
