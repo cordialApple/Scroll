@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { openDoc } from './doc/persistence'
-import { blocks, appendBlock, blockOrder, blockTextString } from './doc/model'
+import { blocks, appendBlock, blockOrder, blockTextString, insertBlockText } from './doc/model'
 import { insertAbove } from './dev/synthetic'
 import { loadCamera } from './doc/camera'
 import { MenuBar } from './chrome/MenuBar'
@@ -104,6 +104,7 @@ function HomeDoc() {
           presence,
           voice,
           blockTextString,
+          insertBlockText,
         }
       }
       setSynced(true)
