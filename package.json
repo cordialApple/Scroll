@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "vite-node server/index.ts",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -14,7 +15,8 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "db:up": "docker run --rm -d --name scroll-pg-dev -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=scroll -p 5432:5432 postgres:16-alpine",
-    "db:down": "docker rm -f scroll-pg-dev"
+    "db:down": "docker rm -f scroll-pg-dev",
+    "db:seed": "vite-node scripts/seed-docs.ts"
   },
   "dependencies": {
     "@hocuspocus/provider": "^2.15.3",

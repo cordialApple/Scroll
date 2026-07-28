@@ -5,6 +5,7 @@ import { createPersistenceExtension } from './db/persistenceExtension'
 import { createIngressExtension, type IngressOptions } from './db/ingressExtension'
 import { createProposeCommitExtension, type ProposalGuard } from './db/proposeCommit'
 import { createSpatialProposalGuard } from './agent/spatialProposalGuard'
+import { createDocumentsApi } from './db/documentsApi'
 
 export interface ScrollServerOptions {
   port: number
@@ -41,6 +42,7 @@ export async function createScrollServer(opts: ScrollServerOptions): Promise<Hoc
     ...(opts.debounce !== undefined ? { debounce: opts.debounce } : {}),
     ...(opts.maxDebounce !== undefined ? { maxDebounce: opts.maxDebounce } : {}),
     extensions: [
+      createDocumentsApi(store),
       createIngressExtension({ maxUpdateBytes: opts.maxUpdateBytes, authenticate: opts.authenticate }),
       persistence.extension,
       createProposeCommitExtension(persistence.commitProposal, {

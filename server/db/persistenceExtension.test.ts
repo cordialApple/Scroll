@@ -14,12 +14,17 @@ function fakeStore() {
     async loadDocument() {
       return { docEpoch: 0, snapshot: null, stateVector: null, updates: [] }
     },
+    async listDocuments() {
+      return []
+    },
     async acquireLease() {
       return 1
     },
     async appendUpdate() {
       return String(++n)
     },
+    async setTitle() {},
+    async deleteDocument() {},
     async compact(_docId, _docEpoch, _ownerEpoch, _snapshot, _stateVector, seqs) {
       compactSeqs.push([...seqs])
     },

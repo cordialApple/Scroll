@@ -7,8 +7,11 @@ CREATE TABLE IF NOT EXISTS documents (
   owner_epoch BIGINT NOT NULL DEFAULT 0,
   snapshot BYTEA,
   state_vector BYTEA,
+  title TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- stored display-title override for the doc picker (rename). Idempotent upgrade for DBs predating the column.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS title TEXT;
 
 CREATE TABLE IF NOT EXISTS document_updates (
   seq BIGSERIAL PRIMARY KEY,
