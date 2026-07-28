@@ -1,76 +1,57 @@
+import type { BlockType } from '../doc/model'
 import type { EditorApi } from '../editor/Editor'
 
 interface Props {
   api: React.RefObject<EditorApi>
   onUndo: () => void
   onRedo: () => void
-  extra?: React.ReactNode
 }
 
 function fmt(cmd: string) {
   document.execCommand(cmd)
 }
 
-export function Toolbar({ api, onUndo, onRedo, extra }: Props) {
+export function Toolbar({ api, onUndo, onRedo }: Props) {
   return (
     <div className="toolbar-row">
       <div className="toolbar">
         <Group>
           <TBtn label="Undo" glyph="↶" onClick={onUndo} />
           <TBtn label="Redo" glyph="↷" onClick={onRedo} />
-          <TBtn label="Print" glyph="⎙" />
+          <TBtn label="Print" glyph="⎙" onClick={() => window.print()} />
         </Group>
         <Sep />
         <Group>
-          <button className="tb-zoom">100% ▾</button>
+          <button className="tb-zoom" disabled title="Zoom — coming soon">
+            100%
+          </button>
         </Group>
         <Sep />
         <Group>
-          <button className="tb-style">Normal text ▾</button>
+          <select
+            className="tb-style"
+            aria-label="Block style"
+            defaultValue="paragraph"
+            onChange={(e) => api.current?.setBlockType(e.target.value as BlockType)}
+          >
+            <option value="paragraph">Normal text</option>
+            <option value="heading">Heading</option>
+            <option value="quote">Quote</option>
+          </select>
         </Group>
         <Sep />
         <Group>
           <TBtn label="Bold" glyph="B" bold onClick={() => fmt('bold')} />
           <TBtn label="Italic" glyph="I" italic onClick={() => fmt('italic')} />
           <TBtn label="Underline" glyph="U" underline onClick={() => fmt('underline')} />
-          <TBtn label="Text color" glyph="A" />
+          <TBtn label="Text color — coming soon" glyph="A" disabled />
         </Group>
         <Sep />
         <Group>
-          <TBtn label="Bulleted list" glyph="•≣" />
-          <TBtn label="Numbered list" glyph="1≣" />
-          <TBtn label="Align" glyph="≣" />
+          <TBtn label="Bulleted list — coming soon" glyph="•≣" disabled />
+          <TBtn label="Numbered list — coming soon" glyph="1≣" disabled />
+          <TBtn label="Align — coming soon" glyph="≣" disabled />
         </Group>
-        <Sep />
-        <Group>
-          <button
-            className="tb-dev"
-            title="Insert variable-height blocks above the camera"
-            onClick={() => api.current?.insertAbove(50)}
-          >
-            +50 above camera
-          </button>
-          <button
-            className="tb-dev"
-            title="Delete blocks above the camera"
-            onClick={() => api.current?.deleteAbove(40)}
-          >
-            −40 above
-          </button>
-          <button
-            className="tb-dev"
-            title="Merge the anchored block into its predecessor (exercises the redirect table)"
-            onClick={() => api.current?.mergeAnchorAway()}
-          >
-            merge anchor
-          </button>
-        </Group>
-        {extra && (
-          <>
-            <Sep />
-            <Group>{extra}</Group>
-          </>
-        )}
       </div>
     </div>
   )
@@ -91,6 +72,7 @@ function TBtn({
   bold,
   italic,
   underline,
+  disabled,
 }: {
   label: string
   glyph: string
@@ -98,12 +80,14 @@ function TBtn({
   bold?: boolean
   italic?: boolean
   underline?: boolean
+  disabled?: boolean
 }) {
   return (
     <button
       className="tb-btn"
       title={label}
       aria-label={label}
+      disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       style={{
