@@ -110,7 +110,8 @@ export function ImageBlock({ view, doc, blocksKey = 'blocks', onImageLoad }: Pro
     ...figureVisual(img),
   }
 
-  let figure: JSX.Element
+  let figureStyle: CSSProperties
+  let imgStyle: CSSProperties
   if (cropActive && hasDims) {
     const l = clampFrac(img.crop.left)
     const r = clampFrac(img.crop.right)
@@ -118,45 +119,25 @@ export function ImageBlock({ view, doc, blocksKey = 'blocks', onImageLoad }: Pro
     const b = clampFrac(img.crop.bottom)
     const vw = Math.max(0.02, 1 - l - r)
     const vh = Math.max(0.02, 1 - t - b)
-    figure = (
-      <figure
-        className="img-figure"
-        style={{ ...figureBase, position: 'relative', aspectRatio: `${img.natW * vw} / ${img.natH * vh}` }}
-      >
-        <img
-          className="img-el"
-          src={img.src}
-          alt={img.alt}
-          draggable={false}
-          onLoad={onLoad}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: `${100 / vw}%`,
-            height: `${100 / vh}%`,
-            transform: `translate(${-(l * 100)}%, ${-(t * 100)}%)`,
-          }}
-        />
-      </figure>
-    )
+    figureStyle = { ...figureBase, position: 'relative', aspectRatio: `${img.natW * vw} / ${img.natH * vh}` }
+    imgStyle = {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: `${100 / vw}%`,
+      height: `${100 / vh}%`,
+      transform: `translate(${-(l * 100)}%, ${-(t * 100)}%)`,
+    }
   } else {
-    figure = (
-      <figure
-        className="img-figure"
-        style={{ ...figureBase, aspectRatio: hasDims ? `${img.natW} / ${img.natH}` : undefined }}
-      >
-        <img
-          className="img-el"
-          src={img.src}
-          alt={img.alt}
-          draggable={false}
-          onLoad={onLoad}
-          style={{ display: 'block', width: '100%', height: hasDims ? '100%' : 'auto' }}
-        />
-      </figure>
-    )
+    figureStyle = { ...figureBase, aspectRatio: hasDims ? `${img.natW} / ${img.natH}` : undefined }
+    imgStyle = { display: 'block', width: '100%', height: hasDims ? '100%' : 'auto' }
   }
+
+  const figure = (
+    <figure className="img-figure" style={figureStyle}>
+      <img className="img-el" src={img.src} alt={img.alt} draggable={false} onLoad={onLoad} style={imgStyle} />
+    </figure>
+  )
 
   return (
     <div
@@ -195,6 +176,7 @@ interface ToolbarProps {
 
 function ImageToolbar({ doc, id, img, blocksKey, onRemove }: ToolbarProps) {
   const set = (patch: Parameters<typeof updateImage>[2]) => updateImage(doc, id, patch, undefined, blocksKey)
+  const setBorder = (patch: Partial<ImageView['border']>) => set({ border: { ...img.border, ...patch } })
   const cropPct = (k: keyof ImageView['crop']) => Math.round(img.crop[k] * 100)
   const onCrop = (k: keyof ImageView['crop'], pct: number) =>
     set({ crop: { ...img.crop, [k]: clampFrac((Number.isFinite(pct) ? pct : 0) / 100) } })
@@ -240,12 +222,12 @@ function ImageToolbar({ doc, id, img, blocksKey, onRemove }: ToolbarProps) {
             min={0}
             max={16}
             value={img.border.width}
-            onChange={(e) => set({ border: { ...img.border, width: Math.max(0, Number(e.target.value) || 0) } })}
+            onChange={(e) => setBorder({ width: Math.max(0, Number(e.target.value) || 0) })}
           />
         </label>
         <select
           value={img.border.style}
-          onChange={(e) => set({ border: { ...img.border, style: e.target.value } })}
+          onChange={(e) => setBorder({ style: e.target.value })}
         >
           {BORDER_STYLES.map((s) => (
             <option key={s} value={s}>
@@ -257,7 +239,7 @@ function ImageToolbar({ doc, id, img, blocksKey, onRemove }: ToolbarProps) {
           type="color"
           aria-label="Border color"
           value={img.border.color}
-          onChange={(e) => set({ border: { ...img.border, color: e.target.value } })}
+          onChange={(e) => setBorder({ color: e.target.value })}
         />
       </div>
 
