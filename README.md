@@ -6,8 +6,8 @@ single-user editor and grows into a multi-user, agent-aware workspace. It expose
 surfaces as spawnable endpoints so external systems (PersonalServer, STARfolio) can drive them
 without reaching into the native app.
 
-This folder currently holds **planning documents only**. Nothing is built yet. The goal of these
-docs is to preserve the full idea before implementation, so scope and sequencing survive.
+The `docs/` folder holds the planning record that preceded implementation, so scope and sequencing
+survive. The editor, sync server, and agent surfaces are now built; see the retrospective below.
 
 ## Two value propositions
 
@@ -41,6 +41,24 @@ PersonalServer and STARfolio should control **endpoints**, not Scroll's native a
 endpoint-spawner seam exists for Open/Closed adherence: consumers extend Scroll by driving endpoints,
 not by modifying the app. This is a design bet, not a proven fact. It is recorded as such in
 [open-questions.md](docs/open-questions.md).
+
+## Property-based testing: a retrospective
+
+Scroll used property-based testing (fast-check) from its first stateful component. This measures what that bought, honestly. It splits into two questions with two different answers.
+
+![Property-based testing: sensitivity vs. realized yield](analysis/pbt/viz/dashboard_preview.png)
+
+**Sensitivity (could PBT catch faults?): near-total.** A mutation sweep on `TreapOrderIndex` (20 hand-built mutants across 5 fault classes, case budgets from 1 to 3000, 10 seeds each) reaches ~100% detection by 10 cases. Execution-order and linkage faults fall slowest. A whole-suite StrykerJS pass kills 86–95% of mutants on covered code.
+
+**Realized yield (did PBT fix real wrong code?): about one.** The record shows a single organic catch: a `>`/`>=` off-by-one that the unit tests passed.
+
+**Why realized yield can't be recovered from git, and why that is the finding.** The build ran an autonomous loop where an agent fixed defects mid-development, before commit. Each PR then squash-merged to one commit. So the broken intermediate states, exactly what a causal count needs, never entered version control. `orderIndex.ts` has three commits: create, comment-pass, treap rewrite. Zero fix commits. The one catch on record survived only because a dev transcript logged it. `n=1` is a floor the record imposes, not a ceiling on PBT.
+
+**What PBT actually bought was preventive coverage of the one high-risk change.** The treap rewrite dropped +225 lines converting a simple array into an O(log n) structure, guarded by a differential property that checks the treap against the array/Fenwick oracle on every method after any op sequence. It shipped without a regression. The sweep is sensitivity ~100% on exactly the fault classes that rewrite could introduce.
+
+**Method and limitations, stated plainly.** The mutation sweep measures sensitivity, not realized bugs: the mutants and the oracle are ours, so it is a capability measure by construction. Squash-merge plus in-loop fixing make realized yield unrecoverable from version control. A project that wants that number should log every property-test failure at the moment it fires, not reconstruct it later.
+
+Harnesses, results, and the figure source live in [`analysis/pbt/`](analysis/pbt/).
 
 ## Documents
 
