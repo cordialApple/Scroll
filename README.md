@@ -46,7 +46,13 @@ not by modifying the app. This is a design bet, not a proven fact. It is recorde
 
 Scroll used property-based testing (fast-check) from its first stateful component. This measures what that bought, honestly. It splits into two questions with two different answers.
 
-![Property-based testing: sensitivity vs. realized yield](analysis/pbt/viz/dashboard_preview.png)
+![Injected-fault sensitivity vs. case budget](analysis/pbt/viz/sensitivity_vs_budget.png)
+
+*The mutation sweep: ~100% of injected faults caught by 10 cases, with execution-order faults falling slowest.*
+
+![Sensitivity is earned, not free](analysis/pbt/viz/sensitivity_earned.png)
+
+*Weaken the oracle or the generator and worst-class detection drops to 80%. The ceiling is earned by harness design, not luck.*
 
 **Sensitivity (could PBT catch faults?): near-total.** A mutation sweep on `TreapOrderIndex` (20 hand-built mutants across 5 fault classes, case budgets from 1 to 3000, 10 seeds each) reaches ~100% detection by 10 cases. Execution-order and linkage faults fall slowest. A whole-suite StrykerJS pass kills 86–95% of mutants on covered code.
 
