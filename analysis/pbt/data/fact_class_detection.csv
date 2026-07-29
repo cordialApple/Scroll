@@ -1,0 +1,49 @@
+fault_class,fault_class_label,budget,detection_rate
+index-off-by-one,Index off-by-one,1,0.75
+index-off-by-one,Index off-by-one,3,1.0
+index-off-by-one,Index off-by-one,10,1.0
+index-off-by-one,Index off-by-one,30,1.0
+index-off-by-one,Index off-by-one,100,1.0
+index-off-by-one,Index off-by-one,300,1.0
+index-off-by-one,Index off-by-one,1000,1.0
+index-off-by-one,Index off-by-one,3000,1.0
+boundary-comparator,Boundary comparator,1,0.7
+boundary-comparator,Boundary comparator,3,1.0
+boundary-comparator,Boundary comparator,10,1.0
+boundary-comparator,Boundary comparator,30,1.0
+boundary-comparator,Boundary comparator,100,1.0
+boundary-comparator,Boundary comparator,300,1.0
+boundary-comparator,Boundary comparator,1000,1.0
+boundary-comparator,Boundary comparator,3000,1.0
+dropped-term,Dropped height term,1,0.6749999999999999
+dropped-term,Dropped height term,3,1.0
+dropped-term,Dropped height term,10,1.0
+dropped-term,Dropped height term,30,1.0
+dropped-term,Dropped height term,100,1.0
+dropped-term,Dropped height term,300,1.0
+dropped-term,Dropped height term,1000,1.0
+dropped-term,Dropped height term,3000,1.0
+exec-order-linkage,Execution order / linkage,1,0.5249999999999999
+exec-order-linkage,Execution order / linkage,3,0.875
+exec-order-linkage,Execution order / linkage,10,1.0
+exec-order-linkage,Execution order / linkage,30,1.0
+exec-order-linkage,Execution order / linkage,100,1.0
+exec-order-linkage,Execution order / linkage,300,1.0
+exec-order-linkage,Execution order / linkage,1000,1.0
+exec-order-linkage,Execution order / linkage,3000,1.0
+split-rank-boundary,Split / merge rank,1,0.6249999999999999
+split-rank-boundary,Split / merge rank,3,1.0
+split-rank-boundary,Split / merge rank,10,1.0
+split-rank-boundary,Split / merge rank,30,1.0
+split-rank-boundary,Split / merge rank,100,1.0
+split-rank-boundary,Split / merge rank,300,1.0
+split-rank-boundary,Split / merge rank,1000,1.0
+split-rank-boundary,Split / merge rank,3000,1.0
+__aggregate__,All 20 mutants (mean),1,0.655
+__aggregate__,All 20 mutants (mean),3,0.975
+__aggregate__,All 20 mutants (mean),10,1.0
+__aggregate__,All 20 mutants (mean),30,1.0
+__aggregate__,All 20 mutants (mean),100,1.0
+__aggregate__,All 20 mutants (mean),300,1.0
+__aggregate__,All 20 mutants (mean),1000,1.0
+__aggregate__,All 20 mutants (mean),3000,1.0

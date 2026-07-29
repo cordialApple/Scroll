@@ -1,0 +1,34 @@
+table fact_ledger
+
+	column metric
+		dataType: string
+		sourceColumn: metric
+
+	column value
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: value
+
+	column note
+		dataType: string
+		sourceColumn: note
+
+	partition fact_ledger = m
+		mode: import
+		source =
+			let
+				Source = #table(
+					type table [metric = text, value = Int64.Type, note = text],
+					{
+					{ "committed_regression_fixtures", 0, "the counterexample ledger (plan §4.3) was designed but never built" },
+					{ "commit_msgs_attributing_pbt", 0, "no commit attributes a fix to a property-test failure" },
+					{ "ci_runs_examined", 152, "GitHub Actions runs mined" },
+					{ "ci_runs_pbt_red", 0, "PBT tests never red on a logic bug; the 1 red run was a Postgres pool flake" },
+					{ "dev_transcripts_mined", 188, "local Claude Code session JSONL files searched" },
+					{ "organic_pbt_catches", 1, "a > vs >= boundary off-by-one unit tests passed; reproduced as mutant B1" },
+					{ "sabotage_teeth_sessions", 7, "sabotage-then-revert gate confirmations found (validated test sensitivity)" },
+					{ "curated_faults_caught", 20, "of 20 hand-built treap mutants, all detected by >=10 cases" }
+					}
+				)
+			in
+				Source

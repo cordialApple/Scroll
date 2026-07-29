@@ -1,6 +1,6 @@
 # CONTEXT.md
 
-_Last updated: 2026-07-27 · branch: main (P6.7 landed, PR #73 merged) · **P6 CLOSED — the attention-anchored agent editor is complete, and P6 was the last phase of the program.**_
+_Last updated: 2026-07-29 · branch: main (P6.7 landed, PR #73 merged; PBT effectiveness study PR #74) · **P6 CLOSED — the attention-anchored agent editor is complete, and P6 was the last phase of the program.**_
 
 ## 1. What changed this session (P6.1 → P6.7, all merged)
 - **P6.1 (#59, `5b22ea2`) — above-camera measure lag fixed.** `Block.tsx` sync a non-focused block's `innerText` in `useLayoutEffect` (before paint) → an above-camera programmatic grow no longer drift the camera. Load-bearing for P6 (an agent edit above the human caret is this exact flow).
@@ -35,3 +35,6 @@ P6 (native attention-anchored agent editor) was the LAST phase. The full arc is 
 - **#63 stays OPEN** (server guard hardening F-04/F-05/F-06) — the one deferred track; not a P6 blocker.
 - **Program status board** (refresh done at P6 CLOSE): https://claude.ai/code/artifact/594fb42d-ae43-44e9-b903-acc5d33e9de2 — bump to **P6 closed / program arc complete**.
 - No further P6 stage. Next work is either the #63 hardening track or new direction from the user.
+
+## 6. Side track — PBT effectiveness study (PR #74)
+Retrospective, not a phase. Lives in `analysis/pbt/` + a README section. Honest split: **sensitivity ~100% by 10 cases** (measured but self-designed oracle; ablations show it is EARNED — weaken the oracle or generator → worst-class detection drops to 80%) vs **realized corrective yield ≈1** (the lone `>`/`>=` organic catch). Realized yield is UNRECOVERABLE from git: squash-merge + the in-loop agent fixing defects before commit erased the broken intermediate states (`orderIndex.ts` = 3 commits, 0 fix commits; the 1 catch survived only in a dev transcript). n=1 is a floor the record imposes, not a ceiling. What PBT actually bought = preventive coverage of the +225-line array→treap rewrite under a full differential oracle. Deliverables: mutation harnesses, star-schema CSVs, seaborn dashboard (`viz/dashboard_preview.png`, embedded in README), version-controlled PBIP (`powerbi/`). **PBIP schemas fixed to Microsoft's published versions but NOT yet Desktop-verified** — needs a test-open; least-sure field is `version.json` `version`. Later: drop in multi-user cam footage of collaborative editing into the README section.

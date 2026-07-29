@@ -1,0 +1,23 @@
+relationship f1000000-0000-0000-0000-000000000001
+	fromColumn: fact_detection.mutant_id
+	toColumn: dim_mutant.mutant_id
+
+relationship f1000000-0000-0000-0000-000000000002
+	fromColumn: fact_detection.budget
+	toColumn: dim_budget.budget
+
+relationship f1000000-0000-0000-0000-000000000003
+	fromColumn: dim_mutant.fault_class
+	toColumn: dim_class.fault_class
+
+relationship f1000000-0000-0000-0000-000000000004
+	fromColumn: fact_class_detection.budget
+	toColumn: dim_budget.budget
+
+relationship f1000000-0000-0000-0000-000000000005
+	fromColumn: fact_ablation.budget
+	toColumn: dim_budget.budget
+
+relationship f1000000-0000-0000-0000-000000000006
+	fromColumn: fact_ablation.fault_class
+	toColumn: dim_class.fault_class
