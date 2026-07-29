@@ -1,0 +1,882 @@
+{
+  "budgets": [
+    10,
+    100,
+    1000
+  ],
+  "seeds": 5,
+  "configs": [
+    {
+      "key": "full",
+      "label": "Full (strong gen + strong oracle)",
+      "byClass": {
+        "index-off-by-one": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "boundary-comparator": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "dropped-term": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "exec-order-linkage": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "split-rank-boundary": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        }
+      },
+      "overall": {
+        "10": 1,
+        "100": 1,
+        "1000": 1
+      },
+      "perMut": [
+        {
+          "id": "A1",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A2",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A3",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A4",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B1",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B2",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B3",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B4",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C1",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C2",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C3",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C4",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D1",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D2",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D3",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D4",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E1",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E2",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E3",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E4",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        }
+      ]
+    },
+    {
+      "key": "no-boundary",
+      "label": "Weak oracle (no exact-boundary probes)",
+      "byClass": {
+        "index-off-by-one": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "boundary-comparator": {
+          "10": 0.8,
+          "100": 1,
+          "1000": 1
+        },
+        "dropped-term": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "exec-order-linkage": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "split-rank-boundary": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        }
+      },
+      "overall": {
+        "10": 0.96,
+        "100": 1,
+        "1000": 1
+      },
+      "perMut": [
+        {
+          "id": "A1",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A2",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A3",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A4",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B1",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 0.2,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B2",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B3",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B4",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C1",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C2",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C3",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C4",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D1",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D2",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D3",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D4",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E1",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E2",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E3",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E4",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        }
+      ]
+    },
+    {
+      "key": "const-weight",
+      "label": "Weak generator (all heights equal)",
+      "byClass": {
+        "index-off-by-one": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "boundary-comparator": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "dropped-term": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "exec-order-linkage": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "split-rank-boundary": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        }
+      },
+      "overall": {
+        "10": 1,
+        "100": 1,
+        "1000": 1
+      },
+      "perMut": [
+        {
+          "id": "A1",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A2",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A3",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A4",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B1",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B2",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B3",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B4",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C1",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C2",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C3",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C4",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D1",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D2",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D3",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D4",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E1",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E2",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E3",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E4",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        }
+      ]
+    },
+    {
+      "key": "short-ops",
+      "label": "Weak generator (op sequences ≤2)",
+      "byClass": {
+        "index-off-by-one": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "boundary-comparator": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        },
+        "dropped-term": {
+          "10": 0.95,
+          "100": 1,
+          "1000": 1
+        },
+        "exec-order-linkage": {
+          "10": 0.8,
+          "100": 1,
+          "1000": 1
+        },
+        "split-rank-boundary": {
+          "10": 1,
+          "100": 1,
+          "1000": 1
+        }
+      },
+      "overall": {
+        "10": 0.95,
+        "100": 1,
+        "1000": 1
+      },
+      "perMut": [
+        {
+          "id": "A1",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A2",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A3",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "A4",
+          "cls": "index-off-by-one",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B1",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B2",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B3",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "B4",
+          "cls": "boundary-comparator",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C1",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C2",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C3",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "C4",
+          "cls": "dropped-term",
+          "pb": {
+            "10": 0.8,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D1",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 0.2,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D2",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D3",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "D4",
+          "cls": "exec-order-linkage",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E1",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E2",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E3",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        },
+        {
+          "id": "E4",
+          "cls": "split-rank-boundary",
+          "pb": {
+            "10": 1,
+            "100": 1,
+            "1000": 1
+          }
+        }
+      ]
+    }
+  ]
+}

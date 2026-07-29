@@ -1,0 +1,61 @@
+config_key,config_label,fault_class,fault_class_label,budget,detection_rate
+full,Full (strong gen + strong oracle),index-off-by-one,Index off-by-one,10,1.0
+full,Full (strong gen + strong oracle),index-off-by-one,Index off-by-one,100,1.0
+full,Full (strong gen + strong oracle),index-off-by-one,Index off-by-one,1000,1.0
+full,Full (strong gen + strong oracle),boundary-comparator,Boundary comparator,10,1.0
+full,Full (strong gen + strong oracle),boundary-comparator,Boundary comparator,100,1.0
+full,Full (strong gen + strong oracle),boundary-comparator,Boundary comparator,1000,1.0
+full,Full (strong gen + strong oracle),dropped-term,Dropped height term,10,1.0
+full,Full (strong gen + strong oracle),dropped-term,Dropped height term,100,1.0
+full,Full (strong gen + strong oracle),dropped-term,Dropped height term,1000,1.0
+full,Full (strong gen + strong oracle),exec-order-linkage,Execution order / linkage,10,1.0
+full,Full (strong gen + strong oracle),exec-order-linkage,Execution order / linkage,100,1.0
+full,Full (strong gen + strong oracle),exec-order-linkage,Execution order / linkage,1000,1.0
+full,Full (strong gen + strong oracle),split-rank-boundary,Split / merge rank,10,1.0
+full,Full (strong gen + strong oracle),split-rank-boundary,Split / merge rank,100,1.0
+full,Full (strong gen + strong oracle),split-rank-boundary,Split / merge rank,1000,1.0
+no-boundary,Weak oracle (no exact-boundary probes),index-off-by-one,Index off-by-one,10,1.0
+no-boundary,Weak oracle (no exact-boundary probes),index-off-by-one,Index off-by-one,100,1.0
+no-boundary,Weak oracle (no exact-boundary probes),index-off-by-one,Index off-by-one,1000,1.0
+no-boundary,Weak oracle (no exact-boundary probes),boundary-comparator,Boundary comparator,10,0.8
+no-boundary,Weak oracle (no exact-boundary probes),boundary-comparator,Boundary comparator,100,1.0
+no-boundary,Weak oracle (no exact-boundary probes),boundary-comparator,Boundary comparator,1000,1.0
+no-boundary,Weak oracle (no exact-boundary probes),dropped-term,Dropped height term,10,1.0
+no-boundary,Weak oracle (no exact-boundary probes),dropped-term,Dropped height term,100,1.0
+no-boundary,Weak oracle (no exact-boundary probes),dropped-term,Dropped height term,1000,1.0
+no-boundary,Weak oracle (no exact-boundary probes),exec-order-linkage,Execution order / linkage,10,1.0
+no-boundary,Weak oracle (no exact-boundary probes),exec-order-linkage,Execution order / linkage,100,1.0
+no-boundary,Weak oracle (no exact-boundary probes),exec-order-linkage,Execution order / linkage,1000,1.0
+no-boundary,Weak oracle (no exact-boundary probes),split-rank-boundary,Split / merge rank,10,1.0
+no-boundary,Weak oracle (no exact-boundary probes),split-rank-boundary,Split / merge rank,100,1.0
+no-boundary,Weak oracle (no exact-boundary probes),split-rank-boundary,Split / merge rank,1000,1.0
+const-weight,Weak generator (all heights equal),index-off-by-one,Index off-by-one,10,1.0
+const-weight,Weak generator (all heights equal),index-off-by-one,Index off-by-one,100,1.0
+const-weight,Weak generator (all heights equal),index-off-by-one,Index off-by-one,1000,1.0
+const-weight,Weak generator (all heights equal),boundary-comparator,Boundary comparator,10,1.0
+const-weight,Weak generator (all heights equal),boundary-comparator,Boundary comparator,100,1.0
+const-weight,Weak generator (all heights equal),boundary-comparator,Boundary comparator,1000,1.0
+const-weight,Weak generator (all heights equal),dropped-term,Dropped height term,10,1.0
+const-weight,Weak generator (all heights equal),dropped-term,Dropped height term,100,1.0
+const-weight,Weak generator (all heights equal),dropped-term,Dropped height term,1000,1.0
+const-weight,Weak generator (all heights equal),exec-order-linkage,Execution order / linkage,10,1.0
+const-weight,Weak generator (all heights equal),exec-order-linkage,Execution order / linkage,100,1.0
+const-weight,Weak generator (all heights equal),exec-order-linkage,Execution order / linkage,1000,1.0
+const-weight,Weak generator (all heights equal),split-rank-boundary,Split / merge rank,10,1.0
+const-weight,Weak generator (all heights equal),split-rank-boundary,Split / merge rank,100,1.0
+const-weight,Weak generator (all heights equal),split-rank-boundary,Split / merge rank,1000,1.0
+short-ops,Weak generator (op sequences â‰¤2),index-off-by-one,Index off-by-one,10,1.0
+short-ops,Weak generator (op sequences â‰¤2),index-off-by-one,Index off-by-one,100,1.0
+short-ops,Weak generator (op sequences â‰¤2),index-off-by-one,Index off-by-one,1000,1.0
+short-ops,Weak generator (op sequences â‰¤2),boundary-comparator,Boundary comparator,10,1.0
+short-ops,Weak generator (op sequences â‰¤2),boundary-comparator,Boundary comparator,100,1.0
+short-ops,Weak generator (op sequences â‰¤2),boundary-comparator,Boundary comparator,1000,1.0
+short-ops,Weak generator (op sequences â‰¤2),dropped-term,Dropped height term,10,0.95
+short-ops,Weak generator (op sequences â‰¤2),dropped-term,Dropped height term,100,1.0
+short-ops,Weak generator (op sequences â‰¤2),dropped-term,Dropped height term,1000,1.0
+short-ops,Weak generator (op sequences â‰¤2),exec-order-linkage,Execution order / linkage,10,0.8
+short-ops,Weak generator (op sequences â‰¤2),exec-order-linkage,Execution order / linkage,100,1.0
+short-ops,Weak generator (op sequences â‰¤2),exec-order-linkage,Execution order / linkage,1000,1.0
+short-ops,Weak generator (op sequences â‰¤2),split-rank-boundary,Split / merge rank,10,1.0
+short-ops,Weak generator (op sequences â‰¤2),split-rank-boundary,Split / merge rank,100,1.0
+short-ops,Weak generator (op sequences â‰¤2),split-rank-boundary,Split / merge rank,1000,1.0

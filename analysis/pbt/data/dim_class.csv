@@ -1,0 +1,6 @@
+fault_class,label,color
+index-off-by-one,Index off-by-one,#008300
+boundary-comparator,Boundary comparator,#e87ba4
+dropped-term,Dropped height term,#eda100
+exec-order-linkage,Execution order / linkage,#2a78d6
+split-rank-boundary,Split / merge rank,#1baf7a

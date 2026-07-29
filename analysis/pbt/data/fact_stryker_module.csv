@@ -1,0 +1,9 @@
+module,covered_score,total_score,killed,timeout,survived,nocov,mutants,detected
+layout.ts,96,95,110,12,5,2,129,122
+orderIndex.ts,87,86,221,20,37,3,281,241
+guardTracker.ts,86,86,6,0,1,0,7,6
+docModel.ts,84,72,78,1,15,15,109,79
+spatialGuard.ts,92,78,44,2,4,9,59,46
+observer.ts,67,67,4,0,2,0,6,4
+anchor.ts,67,50,6,0,3,3,12,6
+model.ts,43,13,57,0,75,294,426,57

@@ -1,0 +1,71 @@
+table fact_stryker_module
+
+	measure 'Covered Kill Rate' = AVERAGE(fact_stryker_module[covered_score])
+		formatString: 0
+
+	measure 'Total Mutants' = SUM(fact_stryker_module[mutants])
+		formatString: #,0
+
+	column module
+		dataType: string
+		sourceColumn: module
+
+	column covered_score
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: covered_score
+
+	column total_score
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: total_score
+
+	column killed
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: killed
+
+	column timeout
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: timeout
+
+	column survived
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: survived
+
+	column nocov
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: nocov
+
+	column mutants
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: mutants
+
+	column detected
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: detected
+
+	partition fact_stryker_module = m
+		mode: import
+		source =
+			let
+				Source = #table(
+					type table [module = text, covered_score = Int64.Type, total_score = Int64.Type, killed = Int64.Type, timeout = Int64.Type, survived = Int64.Type, nocov = Int64.Type, mutants = Int64.Type, detected = Int64.Type],
+					{
+					{ "layout.ts", 96, 95, 110, 12, 5, 2, 129, 122 },
+					{ "orderIndex.ts", 87, 86, 221, 20, 37, 3, 281, 241 },
+					{ "guardTracker.ts", 86, 86, 6, 0, 1, 0, 7, 6 },
+					{ "docModel.ts", 84, 72, 78, 1, 15, 15, 109, 79 },
+					{ "spatialGuard.ts", 92, 78, 44, 2, 4, 9, 59, 46 },
+					{ "observer.ts", 67, 67, 4, 0, 2, 0, 6, 4 },
+					{ "anchor.ts", 67, 50, 6, 0, 3, 3, 12, 6 },
+					{ "model.ts", 43, 13, 57, 0, 75, 294, 426, 57 }
+					}
+				)
+			in
+				Source

@@ -1,0 +1,102 @@
+table fact_ablation
+
+	measure 'Ablation Detection' = AVERAGE(fact_ablation[detection_rate])
+		formatString: 0%
+
+	column config_key
+		dataType: string
+		sourceColumn: config_key
+
+	column config_label
+		dataType: string
+		sourceColumn: config_label
+
+	column fault_class
+		dataType: string
+		sourceColumn: fault_class
+
+	column fault_class_label
+		dataType: string
+		sourceColumn: fault_class_label
+
+	column budget
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: budget
+
+	column detection_rate
+		dataType: double
+		summarizeBy: none
+		sourceColumn: detection_rate
+
+	partition fact_ablation = m
+		mode: import
+		source =
+			let
+				Source = #table(
+					type table [config_key = text, config_label = text, fault_class = text, fault_class_label = text, budget = Int64.Type, detection_rate = number],
+					{
+					{ "full", "Full (strong gen + strong oracle)", "index-off-by-one", "Index off-by-one", 10, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "index-off-by-one", "Index off-by-one", 100, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "index-off-by-one", "Index off-by-one", 1000, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "boundary-comparator", "Boundary comparator", 10, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "boundary-comparator", "Boundary comparator", 100, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "boundary-comparator", "Boundary comparator", 1000, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "dropped-term", "Dropped height term", 10, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "dropped-term", "Dropped height term", 100, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "dropped-term", "Dropped height term", 1000, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "exec-order-linkage", "Execution order / linkage", 10, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "exec-order-linkage", "Execution order / linkage", 100, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "exec-order-linkage", "Execution order / linkage", 1000, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "split-rank-boundary", "Split / merge rank", 10, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "split-rank-boundary", "Split / merge rank", 100, 1.0 },
+					{ "full", "Full (strong gen + strong oracle)", "split-rank-boundary", "Split / merge rank", 1000, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "index-off-by-one", "Index off-by-one", 10, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "index-off-by-one", "Index off-by-one", 100, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "index-off-by-one", "Index off-by-one", 1000, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "boundary-comparator", "Boundary comparator", 10, 0.8 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "boundary-comparator", "Boundary comparator", 100, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "boundary-comparator", "Boundary comparator", 1000, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "dropped-term", "Dropped height term", 10, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "dropped-term", "Dropped height term", 100, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "dropped-term", "Dropped height term", 1000, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "exec-order-linkage", "Execution order / linkage", 10, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "exec-order-linkage", "Execution order / linkage", 100, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "exec-order-linkage", "Execution order / linkage", 1000, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "split-rank-boundary", "Split / merge rank", 10, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "split-rank-boundary", "Split / merge rank", 100, 1.0 },
+					{ "no-boundary", "Weak oracle (no exact-boundary probes)", "split-rank-boundary", "Split / merge rank", 1000, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "index-off-by-one", "Index off-by-one", 10, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "index-off-by-one", "Index off-by-one", 100, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "index-off-by-one", "Index off-by-one", 1000, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "boundary-comparator", "Boundary comparator", 10, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "boundary-comparator", "Boundary comparator", 100, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "boundary-comparator", "Boundary comparator", 1000, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "dropped-term", "Dropped height term", 10, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "dropped-term", "Dropped height term", 100, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "dropped-term", "Dropped height term", 1000, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "exec-order-linkage", "Execution order / linkage", 10, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "exec-order-linkage", "Execution order / linkage", 100, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "exec-order-linkage", "Execution order / linkage", 1000, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "split-rank-boundary", "Split / merge rank", 10, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "split-rank-boundary", "Split / merge rank", 100, 1.0 },
+					{ "const-weight", "Weak generator (all heights equal)", "split-rank-boundary", "Split / merge rank", 1000, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "index-off-by-one", "Index off-by-one", 10, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "index-off-by-one", "Index off-by-one", 100, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "index-off-by-one", "Index off-by-one", 1000, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "boundary-comparator", "Boundary comparator", 10, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "boundary-comparator", "Boundary comparator", 100, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "boundary-comparator", "Boundary comparator", 1000, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "dropped-term", "Dropped height term", 10, 0.95 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "dropped-term", "Dropped height term", 100, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "dropped-term", "Dropped height term", 1000, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "exec-order-linkage", "Execution order / linkage", 10, 0.8 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "exec-order-linkage", "Execution order / linkage", 100, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "exec-order-linkage", "Execution order / linkage", 1000, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "split-rank-boundary", "Split / merge rank", 10, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "split-rank-boundary", "Split / merge rank", 100, 1.0 },
+					{ "short-ops", "Weak generator (op sequences â‰¤2)", "split-rank-boundary", "Split / merge rank", 1000, 1.0 }
+					}
+				)
+			in
+				Source
