@@ -31,7 +31,8 @@ The stronger claim that picker rename must update the editor title was dismissed
 
 API fixes have 13 passing tests, including a real Hocuspocus listener returning a bounded error during a simulated store outage and recovering on the next request. Five new cases were observed failing before the fixes. API follow-up inspector found no remaining issues in that scope. The combined API/model/dictation/spatial suite has 39 passing tests and the same 3 deferred #63 skips.
 
-A separate worker fixed per-tab undo/redo history, stale dictation targets, live tab membership after remote removal, and invalid tab URLs. All four new browser regressions failed before fixes. Final browser run: 12 passed, covering those four plus eight earlier editor/voice/anchoring checks. Typecheck, build and diff check passed after simplifier. Both inspector lenses report no remaining findings in the repaired scopes. Final adjudication remains pending; full database QA is still required.
+A separate worker fixed per-tab undo/redo history, stale dictation targets, live tab membership after remote removal, and invalid tab URLs. All four new browser regressions failed before fixes. Final browser run: 12 passed, covering those four plus eight earlier editor/voice/anchoring checks. Typecheck, build and diff check passed after simplifier. Both inspector lenses report no remaining findings in the repaired scopes. Final adjudication at code commit ac36e52 resolved all six findings and cleared the targeted repair checkpoint. Full database QA and publication authorization remain required; this is not full merge readiness.
 
 Publication remains pending explicit approval for the public cordialApple/Scroll destination. Automatic approval review blocked the earlier push; no remote code changes were made. Docker's Linux engine is still unavailable, so full PostgreSQL-backed unit/browser CI remains required before merge.
+
 
