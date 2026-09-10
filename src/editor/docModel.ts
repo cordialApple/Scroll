@@ -1,7 +1,9 @@
 import * as Y from 'yjs'
-import { blocks, blockId, blockType, blockText } from '../doc/model'
+import { blocks, blockId, blockType, blockText, imageOf } from '../doc/model'
 import { estimateHeight } from '../layout/estimate'
 import { buildOrderIndex, type OrderIndex } from '../layout/orderIndex'
+
+const IMG_CONTENT_W = 736
 
 // ix=effective heights (measured??estimate) for computeLayoutIndexed; ixEst=estimate-only for windowForIndexed so
 // window stays estimate-stable, doesn't shift as DOM measurements arrive (preserves pre-Stage-4 behavior)
@@ -17,15 +19,23 @@ export interface HeightSource {
 }
 
 function estimateFor(m: Y.Map<unknown>): number {
+  if (blockType(m) === 'image') return estimateImageHeight(m)
   return estimateHeight({ type: blockType(m), textLength: blockText(m).length })
+}
+
+function estimateImageHeight(m: Y.Map<unknown>): number {
+  const img = imageOf(m)
+  const dispW = (IMG_CONTENT_W * img.widthPct) / 100
+  const h = img.natW > 0 && img.natH > 0 ? dispW * (img.natH / img.natW) : 240
+  return Math.round(h) + 8
 }
 
 function effective(id: string, est: number, src: HeightSource): number {
   return src.measuredOf(id) ?? est
 }
 
-export function buildDocModel(doc: Y.Doc, src: HeightSource): DocModel {
-  const arr = blocks(doc)
+export function buildDocModel(doc: Y.Doc, src: HeightSource, key: string = 'blocks'): DocModel {
+  const arr = blocks(doc, key)
   const order: string[] = []
   const estimates = new Map<string, number>()
   for (let i = 0; i < arr.length; i++) {
@@ -45,8 +55,9 @@ export function applyEvents(
   doc: Y.Doc,
   events: Y.YEvent<Y.AbstractType<unknown>>[],
   src: HeightSource,
+  key: string = 'blocks',
 ): void {
-  const arr = blocks(doc)
+  const arr = blocks(doc, key)
   for (const ev of events) if (ev.target === arr) applyArrayDelta(model, ev as Y.YArrayEvent<Y.Map<unknown>>, src)
   for (const ev of events) if (ev.target !== arr) applyTextChange(model, ev, src)
 }

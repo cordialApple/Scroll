@@ -27,8 +27,22 @@ export interface LoadedDocument {
   updates: Uint8Array[]
 }
 
+export interface DocumentSummary {
+  docId: string
+  updatedAt: string
+  title: string | null
+}
+
 export interface DocumentStore {
   loadDocument(docId: string): Promise<LoadedDocument>
+  // Every persisted room, newest first. Powers the client doc picker. updated_at tracks last compaction
+  // (the debounce cadence), not the last keystroke — close enough for a chooser.
+  listDocuments(): Promise<DocumentSummary[]>
+  // Set (or clear, when title is empty) the stored display-title override the picker shows. Plain UPDATE:
+  // a title for an unknown doc updates 0 rows and is a no-op — it never fabricates a bare row.
+  setTitle(docId: string, title: string | null): Promise<void>
+  // Hard-delete a room: its snapshot row and every append-log row, in one transaction. Irreversible.
+  deleteDocument(docId: string): Promise<void>
   // Bumps owner_epoch for the room and returns the new value — the fencing token the caller passes to
   // compact(). A new owner acquires a strictly higher epoch than any prior owner, so a paused zombie's
   // late compaction (carrying the stale epoch) fails the WHERE clause in compact() below.
@@ -73,6 +87,36 @@ export function createPostgresStore(pool: Pool): DocumentStore {
         snapshot: row?.snapshot ? new Uint8Array(row.snapshot) : null,
         stateVector: row?.state_vector ? new Uint8Array(row.state_vector) : null,
         updates: updatesRes.rows.map((r) => new Uint8Array(r.update)),
+      }
+    },
+
+    async listDocuments() {
+      assertPoolOpen(pool)
+      const res = await pool.query<{ doc_id: string; updated_at: Date; title: string | null }>(
+        'SELECT doc_id, updated_at, title FROM documents ORDER BY updated_at DESC',
+      )
+      return res.rows.map((r) => ({ docId: r.doc_id, updatedAt: r.updated_at.toISOString(), title: r.title ?? null }))
+    },
+
+    async setTitle(docId, title) {
+      assertPoolOpen(pool)
+      const clean = title && title.trim() ? title.trim().slice(0, 200) : null
+      await pool.query('UPDATE documents SET title = $2 WHERE doc_id = $1', [docId, clean])
+    },
+
+    async deleteDocument(docId) {
+      assertPoolOpen(pool)
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query('DELETE FROM document_updates WHERE doc_id = $1', [docId])
+        await client.query('DELETE FROM documents WHERE doc_id = $1', [docId])
+        await client.query('COMMIT')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
       }
     },
 

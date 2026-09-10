@@ -11,3 +11,10 @@ export function newEndpointId(): string {
   }
   return `${Math.random().toString(36).slice(2, 10)}`
 }
+
+export function newDocId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `doc-${crypto.randomUUID().slice(0, 8)}`
+  }
+  return `doc-${Math.random().toString(36).slice(2, 10)}`
+}
