@@ -281,7 +281,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       let node: Node | null = sel.getRangeAt(0).startContainer
       while (node && node !== scroller) {
         if (node instanceof HTMLElement && node.dataset.blockId) {
-          lastTargetRef.current = { blockId: node.dataset.blockId, caret: getCaretOffset(node) }
+          lastTargetRef.current = { blockId: node.dataset.blockId, caret: getCaretOffset(node), blocksKey }
           // Re-anchor the caret-hold target on pointer/arrow moves, but not on the selection changes that
           // typing itself produces (those are the caret advancing — we want to hold its pre-typing Y).
           if (performance.now() - editInFlightRef.current > 150) {
@@ -295,7 +295,7 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
     }
     document.addEventListener('selectionchange', onSel)
     return () => document.removeEventListener('selectionchange', onSel)
-  }, [])
+  }, [blocksKey])
 
   useEffect(() => {
     const scroller = scrollRef.current

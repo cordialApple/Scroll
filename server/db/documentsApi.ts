@@ -3,103 +3,113 @@ import * as Y from 'yjs'
 import { blockViews, createDoc } from '../../src/doc/model'
 import type { DocumentStore } from './store'
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Cache-Control': 'no-store',
-} as const
-
 const MAX_DOCS = 24
 const PREVIEW_CHARS = 700
 
-// Reconstruct a doc from its persisted snapshot + append log to derive a title (first non-empty block)
-// and a text preview for the picker thumbnail. Bounded to MAX_DOCS newest so the picker never replays
-// the whole database.
+function isLoopback(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+}
+
+function isLocalUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && isLoopback(url.hostname)
+  } catch {
+    return false
+  }
+}
+
 async function summarize(store: DocumentStore, docId: string): Promise<{ title: string; preview: string }> {
   const loaded = await store.loadDocument(docId)
   const doc = createDoc()
-  if (loaded.snapshot) Y.applyUpdate(doc, loaded.snapshot)
-  for (const u of loaded.updates) Y.applyUpdate(doc, u)
-  const lines = blockViews(doc)
-    .map((v) => v.text.trim())
-    .filter(Boolean)
-  return { title: lines[0] ?? 'Untitled document', preview: lines.join('\n').slice(0, PREVIEW_CHARS) }
+  try {
+    if (loaded.snapshot) Y.applyUpdate(doc, loaded.snapshot)
+    for (const update of loaded.updates) Y.applyUpdate(doc, update)
+    const lines = blockViews(doc).map(view => view.text.trim()).filter(Boolean)
+    return { title: lines[0] ?? 'Untitled document', preview: lines.join('\n').slice(0, PREVIEW_CHARS) }
+  } finally {
+    doc.destroy()
+  }
 }
 
 function readRequestBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let data = ''
-    request.on('data', (chunk) => {
-      data += chunk
-      if (data.length > 8192) reject(new Error('request body too large'))
+    const chunks: Buffer[] = []
+    let bytes = 0
+    request.on('data', (chunk: Buffer) => {
+      bytes += chunk.length
+      if (bytes > 8192) {
+        chunks.length = 0
+        reject(new Error('request body too large'))
+        return
+      }
+      chunks.push(chunk)
     })
-    request.on('end', () => resolve(data))
+    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     request.on('error', reject)
+    request.on('aborted', () => reject(new Error('request aborted')))
   })
 }
 
-// A read-only HTTP surface riding the same port as the ws relay (Hocuspocus onRequest hook). GET
-// /api/documents lists the newest persisted rooms with a title + content preview so the client doc
-// picker renders Google-Docs-style thumbnails without a hand-typed room name. Hocuspocus contract (see
-// Server.requestHandler): write the response then reject with an EMPTY error to suppress the default
-// 200 and stop the hook chain; resolve to let a non-match fall through.
 export function createDocumentsApi(store: DocumentStore) {
   return {
     async onRequest({ request, response }: { request: IncomingMessage; response: ServerResponse }) {
       const path = (request.url ?? '').split('?')[0]
       const isCollection = path === '/api/documents'
-      const isItem = path.startsWith('/api/documents/')
-      if (!isCollection && !isItem) return
+      if (!isCollection && !path.startsWith('/api/documents/')) return
 
-      if (request.method === 'OPTIONS') {
-        response.writeHead(204, CORS)
-        response.end()
+      const origin = request.headers.origin
+      const remote = request.socket.remoteAddress
+      const local = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1'
+      const allowed = local && isLocalUrl(`http://${request.headers.host ?? ''}`) &&
+        (origin === undefined || isLocalUrl(origin))
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'Vary': 'Origin',
+        ...(allowed && origin ? { 'Access-Control-Allow-Origin': origin } : {}),
+        'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      }
+      function reply(status: number, body?: unknown): Promise<never> {
+        response.writeHead(status, headers)
+        response.end(body === undefined ? undefined : JSON.stringify(body))
+        // Hocuspocus requires empty rejection after a handled HTTP response.
         return Promise.reject()
       }
+      if (!allowed) return reply(403, { error: 'local access required' })
+      if (request.method === 'OPTIONS') return reply(204)
 
       if (isCollection) {
-        if (request.method !== 'GET') return
+        if (request.method !== 'GET') return reply(405)
         const rows = (await store.listDocuments()).slice(0, MAX_DOCS)
-        const documents = await Promise.all(
-          rows.map(async (r) => {
-            const { title, preview } = await summarize(store, r.docId)
-            return { docId: r.docId, updatedAt: r.updatedAt, title: r.title?.trim() || title, preview }
-          }),
-        )
-        response.writeHead(200, { 'Content-Type': 'application/json', ...CORS })
-        response.end(JSON.stringify({ documents }))
-        return Promise.reject()
+        const documents = await Promise.all(rows.map(async row => {
+          const { title, preview } = await summarize(store, row.docId)
+          return { docId: row.docId, updatedAt: row.updatedAt, title: row.title?.trim() || title, preview }
+        }))
+        return reply(200, { documents })
       }
 
-      const docId = decodeURIComponent(path.slice('/api/documents/'.length))
-      if (!docId) return
-
-      if (request.method === 'DELETE') {
-        await store.deleteDocument(docId)
-        response.writeHead(204, CORS)
-        response.end()
-        return Promise.reject()
+      let docId: string
+      try {
+        docId = decodeURIComponent(path.slice('/api/documents/'.length))
+      } catch {
+        return reply(400, { error: 'invalid document id' })
       }
-
-      if (request.method === 'PATCH') {
-        let title = ''
-        try {
-          const body = await readRequestBody(request)
-          const parsed = body ? (JSON.parse(body) as { title?: unknown }) : {}
-          if (typeof parsed.title === 'string') title = parsed.title
-        } catch {
-          response.writeHead(400, { 'Content-Type': 'application/json', ...CORS })
-          response.end(JSON.stringify({ error: 'invalid json body' }))
-          return Promise.reject()
+      if (!docId) return reply(400, { error: 'invalid document id' })
+      if (request.method !== 'PATCH') return reply(405)
+      let title: string
+      try {
+        const parsed: unknown = JSON.parse(await readRequestBody(request))
+        if (!parsed || typeof parsed !== 'object' || !('title' in parsed) || typeof parsed.title !== 'string') {
+          return reply(400, { error: 'title must be a string' })
         }
-        await store.setTitle(docId, title)
-        response.writeHead(200, { 'Content-Type': 'application/json', ...CORS })
-        response.end(JSON.stringify({ ok: true }))
-        return Promise.reject()
+        title = parsed.title
+      } catch {
+        return reply(400, { error: 'invalid json body' })
       }
-
-      return
+      await store.setTitle(docId, title)
+      return reply(200, { ok: true })
     },
   }
 }

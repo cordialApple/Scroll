@@ -26,8 +26,13 @@ export function useVoice(
     const activeTarget: { current: DictationTarget | null } = { current: null }
     const dictation = createDictation(doc, transcriber, () => {
       const active = activeTarget.current
-      if (active && blockTextString(doc, active.blockId) !== null) return active
-      return editorApiRef.current?.dictationTarget() ?? null
+      const current = editorApiRef.current?.dictationTarget() ?? null
+      if (
+        active &&
+        active.blocksKey === current?.blocksKey &&
+        blockTextString(doc, active.blockId, undefined, active.blocksKey) !== null
+      ) return active
+      return current
     })
     return { transcriber, dictation, activeTarget }
   }, [doc, fake, editorApiRef])

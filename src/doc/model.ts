@@ -112,6 +112,16 @@ export function blockOrder(doc: Y.Doc, key: string = BLOCKS): string[] {
   return blocks(doc, key).map(blockId)
 }
 
+export function blockKeys(doc: Y.Doc): string[] {
+  return [...new Set([BLOCKS, ...doc.share.keys()])]
+    .filter(key => key === BLOCKS || key.startsWith(`${BLOCKS}:`))
+    .sort()
+}
+
+export function allBlockOrder(doc: Y.Doc): string[] {
+  return blockKeys(doc).flatMap(key => blockOrder(doc, key))
+}
+
 export function indexOfBlock(doc: Y.Doc, id: string, key: string = BLOCKS): number {
   const arr = blocks(doc, key)
   for (let i = 0; i < arr.length; i++) {
@@ -177,6 +187,7 @@ export function setBlockType(doc: Y.Doc, id: string, type: BlockType, at?: numbe
   const idx = resolveBlockIndex(doc, id, at, key)
   if (idx < 0) return
   const m = blocks(doc, key).get(idx)
+  if (!blockHasText(m) || type === 'image') return
   if (blockType(m) === type) return
   doc.transact(() => m.set('type', type))
 }
@@ -401,16 +412,29 @@ export function tabBlocksKey(tabId: string): string {
 }
 
 export function listTabs(doc: Y.Doc): DocTab[] {
+  let legacy: DocTab[] = [{ id: DEFAULT_TAB_ID, title: getDocTitle(doc) || 'Tab 1' }]
   const raw = docMeta(doc).get(TABS)
   if (raw) {
     try {
       const arr = JSON.parse(raw) as DocTab[]
-      if (Array.isArray(arr) && arr.length > 0) return arr
+      if (Array.isArray(arr) && arr.length > 0 && arr.every(t => t && typeof t.id === 'string' && typeof t.title === 'string')) legacy = arr
     } catch {
       /* fall through to the implicit default tab */
     }
   }
-  return [{ id: DEFAULT_TAB_ID, title: getDocTitle(doc) || 'Tab 1' }]
+  const merged = new Map(legacy.map((tab, order) => [tab.id, { ...tab, order }]))
+  tabRecords(doc).forEach((record, id) => {
+    if (record === null) merged.delete(id)
+    else merged.set(id, { id, ...record })
+  })
+  const tabs = [...merged.values()]
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map(({ id, title }) => ({ id, title }))
+  return tabs.length ? tabs : [{ id: DEFAULT_TAB_ID, title: 'Tab 1' }]
+}
+
+function tabRecords(doc: Y.Doc): Y.Map<{ title: string; order: number } | null> {
+  return doc.getMap('documentTabs')
 }
 
 export function getActiveTabId(doc: Y.Doc): string {
@@ -427,8 +451,9 @@ export function createTab(doc: Y.Doc, title: string): string {
   const id = newTabId()
   doc.transact(() => {
     const tabs = listTabs(doc)
-    tabs.push({ id, title: title || `Tab ${tabs.length + 1}` })
-    docMeta(doc).set(TABS, JSON.stringify(tabs))
+    const records = tabRecords(doc)
+    const order = Math.max(tabs.length, ...Array.from(records.values(), (t) => t?.order ?? 0)) + 1
+    records.set(id, { title: title || `Tab ${tabs.length + 1}`, order })
     const arr = blocks(doc, tabBlocksKey(id))
     if (arr.length === 0) arr.push([makeBlock('paragraph', '')])
   })
@@ -437,8 +462,9 @@ export function createTab(doc: Y.Doc, title: string): string {
 
 export function renameTab(doc: Y.Doc, id: string, title: string): void {
   doc.transact(() => {
-    const tabs = listTabs(doc).map((t) => (t.id === id ? { ...t, title } : t))
-    docMeta(doc).set(TABS, JSON.stringify(tabs))
+    const records = tabRecords(doc)
+    const order = records.get(id)?.order ?? listTabs(doc).findIndex((t) => t.id === id)
+    if (order >= 0) records.set(id, { title, order })
   })
 }
 
@@ -447,7 +473,7 @@ export function removeTab(doc: Y.Doc, id: string): void {
     const tabs = listTabs(doc)
     if (tabs.length <= 1) return
     const next = tabs.filter((t) => t.id !== id)
-    docMeta(doc).set(TABS, JSON.stringify(next))
+    tabRecords(doc).set(id, null)
     const active = docMeta(doc).get(ACTIVE_TAB)
     if (active === id || !next.some((t) => t.id === active)) docMeta(doc).set(ACTIVE_TAB, next[0].id)
   })

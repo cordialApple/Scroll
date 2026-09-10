@@ -27,11 +27,3 @@ export async function renameDocument(wsUrl: string, docId: string, title: string
   })
   if (!res.ok) throw new Error(`rename failed (${res.status})`)
 }
-
-export async function removeDocument(wsUrl: string, docId: string, signal?: AbortSignal): Promise<void> {
-  const res = await fetch(`${httpBaseFromWs(wsUrl)}/api/documents/${encodeURIComponent(docId)}`, {
-    method: 'DELETE',
-    signal,
-  })
-  if (!res.ok) throw new Error(`remove failed (${res.status})`)
-}

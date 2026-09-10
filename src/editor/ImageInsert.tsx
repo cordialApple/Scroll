@@ -10,6 +10,7 @@ interface Pending {
 }
 
 const MAX_EDGE = 1600
+const TABS: Tab[] = ['upload', 'url', 'camera']
 const TAB_LABEL: Record<Tab, string> = { upload: 'Upload', url: 'By URL', camera: 'Camera' }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -117,7 +118,7 @@ export function ImageInsert({ api, onClose }: Props) {
         </div>
 
         <div className="img-tabs" role="tablist" aria-label="Image source">
-          {(['upload', 'url', 'camera'] as Tab[]).map((t) => (
+          {TABS.map((t) => (
             <button
               key={t}
               role="tab"

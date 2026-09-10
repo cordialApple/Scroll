@@ -34,9 +34,12 @@ const POS_LABEL: Record<ImagePosition, string> = {
   behind: 'Behind',
 }
 const BORDER_STYLES = ['none', 'solid', 'dashed', 'dotted', 'double']
+const CROP_EDGES = ['top', 'right', 'bottom', 'left'] as const
 
 function clampFrac(n: number): number {
-  return n < 0 ? 0 : n > 0.9 ? 0.9 : n
+  if (n < 0) return 0
+  if (n > 0.9) return 0.9
+  return n
 }
 
 function figureVisual(img: ImageView): CSSProperties {
@@ -133,12 +136,6 @@ export function ImageBlock({ view, doc, blocksKey = 'blocks', onImageLoad }: Pro
     imgStyle = { display: 'block', width: '100%', height: hasDims ? '100%' : 'auto' }
   }
 
-  const figure = (
-    <figure className="img-figure" style={figureStyle}>
-      <img className="img-el" src={img.src} alt={img.alt} draggable={false} onLoad={onLoad} style={imgStyle} />
-    </figure>
-  )
-
   return (
     <div
       className={`block block-image${selected ? ' img-selected' : ''}`}
@@ -149,7 +146,9 @@ export function ImageBlock({ view, doc, blocksKey = 'blocks', onImageLoad }: Pro
       style={rootStyle(img)}
       onClick={() => setSelected(true)}
     >
-      {figure}
+      <figure className="img-figure" style={figureStyle}>
+        <img className="img-el" src={img.src} alt={img.alt} draggable={false} onLoad={onLoad} style={imgStyle} />
+      </figure>
       {selected && (
         <ImageToolbar
           doc={doc}
@@ -245,7 +244,7 @@ function ImageToolbar({ doc, id, img, blocksKey, onRemove }: ToolbarProps) {
 
       <div className="img-tb-row">
         <span className="img-tb-lbl">Crop %</span>
-        {(['top', 'right', 'bottom', 'left'] as const).map((k) => (
+        {CROP_EDGES.map((k) => (
           <label key={k} className="img-tb-crop">
             <span>{k[0].toUpperCase()}</span>
             <input

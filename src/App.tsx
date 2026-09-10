@@ -134,7 +134,6 @@ function HomeDoc() {
     handle.whenSynced.then(() => {
       if (!alive) return
       initialAnchor.current = loadCamera(room)
-      undoRef.current = new Y.UndoManager(blocks(handle.doc))
       if (!new URLSearchParams(window.location.search).has('tab')) setActiveTab(getActiveTabId(handle.doc))
       if (import.meta.env.DEV) {
         ;(window as unknown as { __scroll: unknown }).__scroll = {
@@ -159,6 +158,16 @@ function HomeDoc() {
       handle.destroy()
     }
   }, [handle])
+
+  useEffect(() => {
+    if (!synced) return
+    const undo = new Y.UndoManager(blocks(handle.doc, tabBlocksKey(activeTabId)))
+    undoRef.current = undo
+    return () => {
+      undo.destroy()
+      undoRef.current = null
+    }
+  }, [handle.doc, activeTabId, synced])
 
   const selectTab = useCallback(
     (id: string) => {

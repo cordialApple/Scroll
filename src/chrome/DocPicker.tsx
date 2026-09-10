@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { listDocuments, removeDocument, renameDocument, type DocSummary } from '../doc/docsApi'
+import { listDocuments, renameDocument, type DocSummary } from '../doc/docsApi'
 import { createDocRoom, openDocRoom, rememberWs } from '../doc/roomNav'
 import './DocPicker.css'
 
@@ -82,18 +82,6 @@ export function DocPicker({ wsUrl }: Props) {
     }
   }
 
-  async function onRemove(d: DocSummary) {
-    setMenuFor(null)
-    if (!wsUrl) return
-    if (!window.confirm(`Remove “${d.title}”? This deletes it for everyone and can’t be undone.`)) return
-    try {
-      await removeDocument(wsUrl, d.docId)
-      await reload()
-    } catch (e: unknown) {
-      window.alert(`Remove failed: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
   function onOpenNewTab(docId: string) {
     setMenuFor(null)
     window.open(newTabUrl(docId), '_blank', 'noopener')
@@ -162,9 +150,6 @@ export function DocPicker({ wsUrl }: Props) {
                     <div className="doccard-menu" role="menu" onMouseDown={(e) => e.stopPropagation()}>
                       <button className="doccard-menu-item" role="menuitem" onClick={() => onRename(d)}>
                         Rename
-                      </button>
-                      <button className="doccard-menu-item" role="menuitem" onClick={() => onRemove(d)}>
-                        Remove
                       </button>
                       <button className="doccard-menu-item" role="menuitem" onClick={() => onOpenNewTab(d.docId)}>
                         Open in new tab

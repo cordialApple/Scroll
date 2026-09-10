@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import type * as Y from 'yjs'
-import { blocks, blockId, blockType, blockText, docMeta, listTabs, tabBlocksKey, type DocTab } from '../doc/model'
+import { blocks, blockId, blockType, blockText, listTabs, tabBlocksKey, type DocTab } from '../doc/model'
 
 export interface NavPanelProps {
   doc: Y.Doc
@@ -24,16 +24,9 @@ function useLiveNav(doc: Y.Doc, activeTabId: string): { tabs: DocTab[]; headings
   const [, bump] = useReducer((x) => x + 1, 0)
 
   useEffect(() => {
-    const meta = docMeta(doc)
-    meta.observe(bump)
-    return () => meta.unobserve(bump)
+    doc.on('afterTransaction', bump)
+    return () => doc.off('afterTransaction', bump)
   }, [doc])
-
-  useEffect(() => {
-    const arr = blocks(doc, tabBlocksKey(activeTabId))
-    arr.observeDeep(bump)
-    return () => arr.unobserveDeep(bump)
-  }, [doc, activeTabId])
 
   const tabs = listTabs(doc)
   const arr = blocks(doc, tabBlocksKey(activeTabId))
