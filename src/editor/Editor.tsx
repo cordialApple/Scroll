@@ -102,6 +102,9 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
   const modelDocRef = useRef<Y.Doc | null>(null)
   const modelKeyRef = useRef<string>(blocksKey)
   if (modelRef.current === null || modelDocRef.current !== doc || modelKeyRef.current !== blocksKey) {
+    lastTargetRef.current = null
+    pendingFocusRef.current = null
+    caretHoldYRef.current = null
     modelRef.current = buildDocModel(doc, src, blocksKey)
     modelDocRef.current = doc
     modelKeyRef.current = blocksKey
@@ -400,7 +403,17 @@ export const Editor = forwardRef<EditorApi, Props>(function Editor(
       },
       anchorId: () => effAnchor.blockId,
       heightsSize: () => heightsRef.current.size,
-      dictationTarget: () => lastTargetRef.current,
+      dictationTarget: () => {
+        const node = window.getSelection()?.anchorNode
+        const element = (node instanceof HTMLElement ? node : node?.parentElement)?.closest<HTMLElement>('[data-block-id]')
+        if (element && scrollRef.current?.contains(element)) {
+          lastTargetRef.current = { blockId: element.dataset.blockId!, caret: getCaretOffset(element), blocksKey }
+        }
+        const target = lastTargetRef.current
+        return target?.blocksKey === blocksKey && resolveBlockIndex(doc, target.blockId, undefined, blocksKey) >= 0
+          ? target
+          : null
+      },
     }),
     [doc, effAnchor.blockId, hintOf, blocksKey, commitAnchor],
   )

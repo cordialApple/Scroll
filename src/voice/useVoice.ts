@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, type RefObject } from 'react'
 import type * as Y from 'yjs'
 import { blockTextString } from '../doc/model'
 import type { EditorApi } from '../editor/Editor'
@@ -15,7 +15,7 @@ export interface Voice {
 export function useVoice(
   doc: Y.Doc,
   editorApiRef: RefObject<EditorApi | null>,
-  opts: { fake?: boolean } = {},
+  opts: { fake?: boolean; blocksKey?: string } = {},
 ): Voice {
   const fake = opts.fake ?? false
   const voice = useMemo(() => {
@@ -36,6 +36,10 @@ export function useVoice(
     })
     return { transcriber, dictation, activeTarget }
   }, [doc, fake, editorApiRef])
+
+  useLayoutEffect(() => {
+    voice.activeTarget.current = null
+  }, [voice, opts.blocksKey])
 
   useEffect(() => {
     const { transcriber, dictation, activeTarget } = voice

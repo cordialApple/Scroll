@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as Y from 'yjs'
-import { blockViews, createDoc } from '../../src/doc/model'
+import { blockViews, createDoc, getDocTitle, listTabs, tabBlocksKey } from '../../src/doc/model'
 import type { DocumentStore } from './store'
 
 const MAX_DOCS = 24
@@ -25,8 +25,9 @@ async function summarize(store: DocumentStore, docId: string): Promise<{ title: 
   try {
     if (loaded.snapshot) Y.applyUpdate(doc, loaded.snapshot)
     for (const update of loaded.updates) Y.applyUpdate(doc, update)
-    const lines = blockViews(doc).map(view => view.text.trim()).filter(Boolean)
-    return { title: lines[0] ?? 'Untitled document', preview: lines.join('\n').slice(0, PREVIEW_CHARS) }
+    const lines = listTabs(doc).flatMap(tab => blockViews(doc, tabBlocksKey(tab.id)))
+      .map(view => view.text.trim()).filter(Boolean)
+    return { title: getDocTitle(doc).trim() || lines[0] || 'Untitled document', preview: lines.join('\n').slice(0, PREVIEW_CHARS) }
   } finally {
     doc.destroy()
   }
@@ -82,12 +83,16 @@ export function createDocumentsApi(store: DocumentStore) {
 
       if (isCollection) {
         if (request.method !== 'GET') return reply(405)
-        const rows = (await store.listDocuments()).slice(0, MAX_DOCS)
-        const documents = await Promise.all(rows.map(async row => {
-          const { title, preview } = await summarize(store, row.docId)
-          return { docId: row.docId, updatedAt: row.updatedAt, title: row.title?.trim() || title, preview }
-        }))
-        return reply(200, { documents })
+        try {
+          const rows = (await store.listDocuments()).slice(0, MAX_DOCS)
+          const documents = await Promise.all(rows.map(async row => {
+            const { title, preview } = await summarize(store, row.docId)
+            return { docId: row.docId, updatedAt: row.updatedAt, title: row.title?.trim() || title, preview }
+          }))
+          return reply(200, { documents })
+        } catch {
+          return reply(503, { error: 'documents unavailable' })
+        }
       }
 
       let docId: string
@@ -108,7 +113,11 @@ export function createDocumentsApi(store: DocumentStore) {
       } catch {
         return reply(400, { error: 'invalid json body' })
       }
-      await store.setTitle(docId, title)
+      try {
+        await store.setTitle(docId, title)
+      } catch {
+        return reply(503, { error: 'documents unavailable' })
+      }
       return reply(200, { ok: true })
     },
   }

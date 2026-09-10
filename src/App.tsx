@@ -9,6 +9,7 @@ import {
   insertBlockText,
   tabBlocksKey,
   getActiveTabId,
+  listTabs,
   setActiveTabId,
   createTab,
   renameTab,
@@ -121,20 +122,24 @@ function HomeDoc() {
   )
   const apiRef = useRef<EditorApi>(null)
   const undoRef = useRef<Y.UndoManager | null>(null)
+  const undoByTabRef = useRef(new Map<string, Y.UndoManager>())
   const initialAnchor = useRef<Anchor | null>(null)
 
   const voiceFake = useMemo(
     () => import.meta.env.DEV && new URLSearchParams(window.location.search).get('voice') === 'fake',
     [],
   )
-  const voice = useVoice(handle.doc, apiRef, { fake: voiceFake })
+  const voice = useVoice(handle.doc, apiRef, { fake: voiceFake, blocksKey: tabBlocksKey(activeTabId) })
 
   useEffect(() => {
     let alive = true
     handle.whenSynced.then(() => {
       if (!alive) return
       initialAnchor.current = loadCamera(room)
-      if (!new URLSearchParams(window.location.search).has('tab')) setActiveTab(getActiveTabId(handle.doc))
+      const requestedTab = new URLSearchParams(window.location.search).get('tab')
+      setActiveTab(requestedTab && listTabs(handle.doc).some(tab => tab.id === requestedTab)
+        ? requestedTab
+        : getActiveTabId(handle.doc))
       if (import.meta.env.DEV) {
         ;(window as unknown as { __scroll: unknown }).__scroll = {
           doc: handle.doc,
@@ -161,10 +166,40 @@ function HomeDoc() {
 
   useEffect(() => {
     if (!synced) return
-    const undo = new Y.UndoManager(blocks(handle.doc, tabBlocksKey(activeTabId)))
+    const reconcileTab = () => {
+      const tabIds = new Set(listTabs(handle.doc).map(tab => tab.id))
+      setActiveTab(current => tabIds.has(current) ? current : getActiveTabId(handle.doc))
+      for (const [id, undo] of undoByTabRef.current) {
+        if (!tabIds.has(id)) {
+          undo.destroy()
+          undoByTabRef.current.delete(id)
+        }
+      }
+    }
+    reconcileTab()
+    handle.doc.on('afterTransaction', reconcileTab)
+    return () => handle.doc.off('afterTransaction', reconcileTab)
+  }, [handle.doc, synced])
+
+  useEffect(() => {
+    const managers = undoByTabRef.current
+    return () => {
+      for (const undo of managers.values()) undo.destroy()
+      managers.clear()
+      undoRef.current = null
+    }
+  }, [handle.doc])
+
+  useEffect(() => {
+    if (!synced) return
+    let undo = undoByTabRef.current.get(activeTabId)
+    if (!undo) {
+      undo = new Y.UndoManager(blocks(handle.doc, tabBlocksKey(activeTabId)))
+      undoByTabRef.current.set(activeTabId, undo)
+    }
     undoRef.current = undo
     return () => {
-      undo.destroy()
+      undo.stopCapturing()
       undoRef.current = null
     }
   }, [handle.doc, activeTabId, synced])
