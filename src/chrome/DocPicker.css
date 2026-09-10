@@ -1,0 +1,206 @@
+.docpicker {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--on-surface);
+  padding: 26px clamp(20px, 4vw, 40px) 60px;
+}
+.docpicker-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.docpicker-h1 {
+  font-size: 20px;
+  font-weight: 500;
+  margin: 0;
+}
+.docpicker-note {
+  color: var(--on-surface-variant);
+  line-height: 1.7;
+  max-width: 60ch;
+}
+.docpicker-note code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+/* Fixed-width cards: auto-fill packs as many 200px columns as fit and leaves the tail as empty space,
+   so cards never stretch to fill the row. min-width:0 on the item (below) stops a long nowrap title from
+   blowing its track out past 200px. */
+.docpicker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 200px);
+  justify-content: start;
+  gap: 22px 20px;
+}
+
+.doccard {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-container-lowest);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.doccard:hover {
+  border-color: var(--primary);
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.14);
+}
+.doccard:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.doccard-thumb {
+  height: 226px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  justify-content: center;
+  padding-top: 14px;
+  overflow: hidden;
+}
+.doccard-page {
+  width: 82%;
+  height: 206px;
+  overflow: hidden;
+  color: #202124;
+  font-family: 'Times New Roman', Georgia, serif;
+  font-size: 6.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.doccard-foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px 12px;
+}
+.doccard-glyph {
+  flex: none;
+  color: #1a73e8;
+  font-size: 15px;
+}
+.doccard-meta {
+  min-width: 0;
+}
+.doccard-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doccard-sub {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  margin-top: 2px;
+}
+.doccard-current {
+  color: var(--primary);
+}
+
+.doccard-new {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 285px;
+  background: var(--surface-container);
+  border-style: dashed;
+}
+.doccard-new:hover {
+  background: var(--state-hover);
+}
+.doccard-plus {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--primary);
+}
+.doccard-newlabel {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.doccard-skeleton {
+  min-height: 285px;
+  background: var(--surface-container);
+  cursor: default;
+}
+
+.doccard-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.doccard-more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  transition: opacity 120ms ease, background 120ms ease;
+}
+.doccard-wrap:hover .doccard-more,
+.doccard-more:focus-visible,
+.doccard-more[aria-expanded='true'] {
+  opacity: 1;
+}
+.doccard-more:hover {
+  background: var(--surface-container-highest);
+}
+
+.doccard-menu {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  z-index: 10;
+  min-width: 180px;
+  padding: 6px 0;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--elevation-dialog);
+}
+.doccard-menu-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.doccard-menu-item:hover {
+  background: var(--state-hover);
+}

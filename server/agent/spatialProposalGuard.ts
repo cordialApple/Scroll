@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
 import { DEFAULT_GRACE_MS, guardedBlocks, type GuardCamera, type GuardConfig } from '../../src/agent/spatialGuard'
 import { trackCameras, type ObservedCamera } from '../../src/agent/guardTracker'
-import { blockAuthor, blockOrder, blocks, blockId, blockText, blockType, createDoc, redirectSource } from '../../src/doc/model'
+import { allBlockOrder, blockAuthor, blockKeys, blocks, blockId, blockHasText, blockText, blockType, createDoc, imageOf, listTabs, redirectSource } from '../../src/doc/model'
 import { resolveRedirect } from '../../src/doc/redirects'
 import type { Anchor } from '../../src/layout/layout'
 import type { GuardResult, ProposalGuard } from '../db/proposeCommit'
@@ -23,7 +23,7 @@ function isAnchor(v: unknown): v is Anchor {
 // no redirect must stay unplaceable so guardedBlocks fails closed (guards the whole doc) rather than
 // silently guarding the top and leaving the reader's true region cold.
 function liveCameras(document: Y.Doc, awareness: Awareness): ObservedCamera[] {
-  const order = blockOrder(document)
+  const order = allBlockOrder(document)
   const inOrder = new Set(order)
   const redirects = redirectSource(document)
   const out: ObservedCamera[] = []
@@ -45,6 +45,7 @@ interface GuardView {
   type: string
   delta: string
   author: string
+  image: string
 }
 
 // Block identity for the guard: id + type + text DELTA (JSON) + lastAuthor. The delta captures formatting
@@ -52,12 +53,15 @@ interface GuardView {
 // provenance write, #72) into a guarded band is refused too — a marker change under a live reader is still an
 // uncoordinated write the guard exists to prevent.
 function guardViews(document: Y.Doc): GuardView[] {
-  return blocks(document).map((m) => ({
-    id: blockId(m),
-    type: blockType(m),
-    delta: JSON.stringify(blockText(m).toDelta()),
-    author: blockAuthor(m) ?? '',
-  }))
+  return blockKeys(document).flatMap((key) =>
+    blocks(document, key).map((m) => ({
+      id: blockId(m),
+      type: blockType(m),
+      delta: JSON.stringify(blockHasText(m) ? blockText(m).toDelta() : []),
+      author: blockAuthor(m) ?? '',
+      image: JSON.stringify(blockType(m) === 'image' ? imageOf(m) : null),
+    })),
+  )
 }
 
 function forkWith(document: Y.Doc, update: Uint8Array): Y.Doc {
@@ -88,7 +92,7 @@ function guardedSpansIntact(before: GuardView[], after: GuardView[], guarded: Se
     for (let d = 0; d <= j - k; d++) {
       const a = before[k + d]
       const b = after[fi + d]
-      if (a.id !== b.id || a.type !== b.type || a.delta !== b.delta || a.author !== b.author) return false
+      if (a.id !== b.id || a.type !== b.type || a.delta !== b.delta || a.author !== b.author || a.image !== b.image) return false
     }
     k = j + 1
   }
@@ -111,7 +115,7 @@ export function createSpatialProposalGuard(opts: SpatialGuardOptions = {}): Prop
     trackers.set(document, cameras)
 
     const guarded = guardedBlocks({
-      order: blockOrder(document),
+      order: allBlockOrder(document),
       cameras: [...cameras.values()],
       pinned: opts.pinned?.(document),
       // The authority always holds its room's awareness; a null awareness means the peer set is unknown,
@@ -122,8 +126,14 @@ export function createSpatialProposalGuard(opts: SpatialGuardOptions = {}): Prop
     })
     if (guarded.size === 0) return { ok: true }
 
-    return guardedSpansIntact(guardViews(document), guardViews(forkWith(document, update)), guarded)
-      ? { ok: true }
-      : { ok: false, reason: 'spatial guard: proposal alters a block inside a live camera band' }
+    const fork = forkWith(document, update)
+    try {
+      return JSON.stringify(listTabs(document)) === JSON.stringify(listTabs(fork)) &&
+        guardedSpansIntact(guardViews(document), guardViews(fork), guarded)
+        ? { ok: true }
+        : { ok: false, reason: 'spatial guard: proposal alters a block inside a live camera band' }
+    } finally {
+      fork.destroy()
+    }
   }
 }

@@ -1,11 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Dictation } from '../voice/dictation'
-import type { Transcriber, TranscriberError, TranscriberState } from '../voice/transcriber'
-
-interface Props {
-  transcriber: Transcriber
-  dictation: Dictation
-}
+import type { Voice } from '../voice/useVoice'
+import type { TranscriberError, TranscriberState } from '../voice/transcriber'
 
 function errorMessage(e: TranscriberError): string {
   switch (e.kind) {
@@ -22,13 +17,17 @@ function errorMessage(e: TranscriberError): string {
   }
 }
 
-export function MicButton({ transcriber, dictation }: Props) {
+export function VoiceIndicator({ voice }: { voice: Voice }) {
+  const { transcriber, dictation } = voice
   const [state, setState] = useState<TranscriberState>(transcriber.state)
   const [interim, setInterim] = useState(dictation.interimText)
   const [error, setError] = useState<TranscriberError | null>(null)
 
   useEffect(() => {
-    const offState = transcriber.onStateChange(setState)
+    const offState = transcriber.onStateChange((s) => {
+      setState(s)
+      if (s === 'listening') setError(null)
+    })
     const offInterim = dictation.observeInterim(setInterim)
     // Surface any error that lands the engine in a terminal state — hard permission/device errors,
     // restart-exhaustion (network), and start throws (unknown). Transient blips keep state 'listening'.
@@ -43,29 +42,9 @@ export function MicButton({ transcriber, dictation }: Props) {
   }, [transcriber, dictation])
 
   const listening = state === 'listening'
-  const toggle = () => {
-    setError(null)
-    if (listening) transcriber.stop()
-    else transcriber.start()
-  }
 
   return (
     <>
-      <button
-        className={`mic-btn${listening ? ' mic-on' : ''}${state === 'error' ? ' mic-err' : ''}`}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={toggle}
-        aria-pressed={listening}
-        aria-label={listening ? 'Stop voice typing' : 'Start voice typing'}
-        title={listening ? 'Stop voice typing' : 'Voice typing'}
-        data-mic-state={state}
-      >
-        <span className="mic-glyph" aria-hidden>
-          {state === 'error' ? '🎙' : '🎤'}
-        </span>
-        <span className="mic-label">{listening ? 'Listening' : 'Dictate'}</span>
-      </button>
-
       {listening && (
         <div className="mic-interim" role="status" aria-live="polite" data-mic-interim>
           {interim ? (

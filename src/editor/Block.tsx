@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { BlockView } from '../doc/model'
-import { getCaretOffset, caretAtStart } from './caret'
+import { getCaretOffset, setCaretOffset, caretAtStart } from './caret'
 
 interface Props {
   view: BlockView
@@ -18,9 +18,10 @@ export function Block({ view, onEdit, onSplit, onMerge }: Props) {
   // passive effect syncs after paint — an above-camera grow is then measured stale and the camera drifts.
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
-    if (document.activeElement === el) return
-    if (el.innerText !== view.text) el.innerText = view.text
+    if (!el || el.innerText === view.text) return
+    const caret = document.activeElement === el ? getCaretOffset(el) : null
+    el.innerText = view.text
+    if (caret !== null) setCaretOffset(el, Math.min(caret, view.text.length))
   }, [view.text])
 
   return (
@@ -34,9 +35,6 @@ export function Block({ view, onEdit, onSplit, onMerge }: Props) {
       spellCheck={false}
       onInput={(e) => onEdit(view.id, (e.currentTarget as HTMLElement).innerText)}
       onBlur={(e) => {
-        // The layout-effect sync above skips a focused block, so a programmatic text change to
-        // the block the caret is in — e.g. the first half of a split, still focused when the sync runs —
-        // never reaches the DOM until it blurs. Reconcile here so focus leaving lands the pending text.
         const el = e.currentTarget as HTMLElement
         if (el.innerText !== view.text) el.innerText = view.text
       }}

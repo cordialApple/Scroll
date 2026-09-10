@@ -5,6 +5,7 @@ import type { Transcriber, TranscriptEvent } from './transcriber'
 export interface DictationTarget {
   blockId: string
   caret: number
+  blocksKey?: string
 }
 
 export interface Dictation {
@@ -48,16 +49,16 @@ export function createDictation(
       setInterim('')
       return
     }
-    const full = blockTextString(doc, target.blockId)
+    const full = blockTextString(doc, target.blockId, undefined, target.blocksKey)
     if (full === null) {
       setInterim('')
       return
     }
     const caret = Math.max(0, Math.min(target.caret, full.length))
     const inserted = (needsSpace(full.slice(0, caret), e.text) ? ' ' : '') + e.text
-    insertBlockText(doc, target.blockId, caret, inserted)
+    insertBlockText(doc, target.blockId, caret, inserted, undefined, target.blocksKey)
     setInterim('')
-    const next: DictationTarget = { blockId: target.blockId, caret: caret + inserted.length }
+    const next: DictationTarget = { ...target, caret: caret + inserted.length }
     for (const cb of commitCbs) cb(next, inserted)
   }
 
