@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import type { Awareness } from 'y-protocols/awareness'
+import { performance } from 'node:perf_hooks'
 import { DEFAULT_GRACE_MS, guardedBlocks, type GuardCamera, type GuardConfig } from '../../src/agent/spatialGuard'
 import { trackCameras, type ObservedCamera } from '../../src/agent/guardTracker'
 import { allBlockOrder, blockAuthor, blockKeys, blocks, blockId, blockHasText, blockText, blockType, createDoc, imageOf, listTabs, redirectSource } from '../../src/doc/model'
@@ -15,6 +16,16 @@ export interface SpatialGuardOptions {
 
 function isAnchor(v: unknown): v is Anchor {
   return !!v && typeof v === 'object' && typeof (v as Anchor).blockId === 'string' && typeof (v as Anchor).offset === 'number'
+}
+
+function observedCameras(awareness: Awareness): ObservedCamera[] {
+  const out: ObservedCamera[] = []
+  awareness.getStates().forEach((state, clientId) => {
+    const cam = (state as { camera?: unknown }).camera
+    if (!isAnchor(cam)) return
+    out.push({ clientId, blockId: cam.blockId })
+  })
+  return out
 }
 
 // Resolve a peer camera to a block that places in the current order, following the authoritative redirect
@@ -38,6 +49,11 @@ function liveCameras(document: Y.Doc, awareness: Awareness): ObservedCamera[] {
     out.push({ clientId, blockId: id })
   })
   return out
+}
+
+interface TrackedAwareness {
+  room: string
+  detach(): void
 }
 
 interface GuardView {
@@ -101,22 +117,48 @@ function guardedSpansIntact(before: GuardView[], after: GuardView[], guarded: Se
 
 // The concrete P6 spatial ProposalGuard: refuse any proposal that would alter a block inside the residency
 // band of a live (or recently-dropped, within grace) camera, evaluated at commit against the authoritative
-// document. Holds one grace tracker per room (keyed by the doc; GC'd with it), folded at each proposal so a
-// dropped reader's band stays guarded across a network blip. One `graceMs` drives both the tracker and the
-// predicate (F-05).
+// document. Holds one grace tracker per room name, folded at each proposal and while awareness updates stream
+// in, so a dropped reader's band stays guarded across a network blip. One `graceMs` drives both the tracker
+// and the predicate (F-05).
 export function createSpatialProposalGuard(opts: SpatialGuardOptions = {}): ProposalGuard {
   const graceMs = opts.graceMs ?? DEFAULT_GRACE_MS
-  const trackers = new WeakMap<Y.Doc, Map<number, GuardCamera>>()
+  const trackers = new Map<string, Map<number, GuardCamera>>()
+  const trackedAwareness = new WeakMap<Awareness, TrackedAwareness>()
+
+  const ensureAwarenessTracker = (awareness: Awareness, room: string) => {
+    const state = trackedAwareness.get(awareness)
+    if (state?.room === room) return
+
+    const detach = () => {
+      awareness.off('update', onUpdate)
+      trackedAwareness.delete(awareness)
+    }
+    const onUpdate = () => {
+      const prev = trackers.get(room) ?? new Map()
+      trackers.set(room, trackCameras(prev, observedCameras(awareness), performance.now(), graceMs))
+    }
+    awareness.on('update', onUpdate)
+    trackedAwareness.set(awareness, { room, detach })
+    if (state && state.room !== room) {
+      state.detach()
+    }
+  }
 
   return (update, ctx): GuardResult => {
-    const { document, awareness, now } = ctx
+    const { document, awareness, now, peer, sourceClientId } = ctx
+    const room = peer?.room
     const live = awareness ? liveCameras(document, awareness) : []
-    const cameras = trackCameras(trackers.get(document) ?? new Map(), live, now, graceMs)
-    trackers.set(document, cameras)
+    if (awareness && room) {
+      ensureAwarenessTracker(awareness, room)
+    }
+    const all = room ? trackers.get(room) ?? new Map() : new Map()
+    const cameras = trackCameras(all, live, now, graceMs)
+    if (room) trackers.set(room, cameras)
+    const guardCameras = sourceClientId == null ? [...cameras.values()] : [...cameras.values()].filter((c) => c.clientId !== sourceClientId)
 
     const guarded = guardedBlocks({
       order: allBlockOrder(document),
-      cameras: [...cameras.values()],
+      cameras: guardCameras,
       pinned: opts.pinned?.(document),
       // The authority always holds its room's awareness; a null awareness means the peer set is unknown,
       // so fail closed (guardedBlocks guards the whole document).

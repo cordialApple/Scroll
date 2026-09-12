@@ -40,8 +40,19 @@ function emptyAwareness(doc: Y.Doc): Awareness {
   return a
 }
 
-function decide(doc: Y.Doc, update: Uint8Array, awareness: Awareness | null, guard: ProposalGuard, now = 0) {
-  return evaluateProposal({ peer: proposer, update, document: doc, guard, maxUpdateBytes: MAX, awareness, now })
+function cameraClientId(aw: Awareness): number {
+  return [...aw.getStates().keys()][0] as number
+}
+
+function decide(
+  doc: Y.Doc,
+  update: Uint8Array,
+  awareness: Awareness | null,
+  guard: ProposalGuard,
+  now = 0,
+  sourceClientId?: number,
+) {
+  return evaluateProposal({ peer: proposer, update, document: doc, guard, maxUpdateBytes: MAX, awareness, now, sourceClientId })
 }
 
 describe('createSpatialProposalGuard — commit-time spatial enforcement (P6.3)', () => {
@@ -146,38 +157,36 @@ describe('createSpatialProposalGuard — commit-time spatial enforcement (P6.3)'
     expect(decide(doc, update, awareness, createSpatialProposalGuard())).toMatchObject({ commit: false })
   })
 
-  // F-04 (carry-forward #63): the tracker folds only at proposal time, so a reader who moves A→B with no
-  // intervening proposal then drops is remembered at stale A, leaving B cold. Needs a continuous awareness
-  // observer. SKIP: asserts the post-fix behaviour; un-skipped it FAILS today (block 30 commits).
-  it.skip('P6.4 (#63): remembers a reader who moved then dropped without an intervening proposal', () => {
+  it('P6.4 (#63): remembers a reader who moved then dropped without an intervening proposal', () => {
     const { doc, ids } = seed(40)
     const guard = createSpatialProposalGuard({ graceMs: 5000 })
-    decide(doc, proposal(doc, (f) => setBlockText(f, ids[38], 'seed obs')), awarenessWithCamera(doc, ids[10]), guard, 0)
+    const authority = emptyAwareness(doc)
+    const peer = new Awareness(new Y.Doc())
+    peer.setLocalStateField('camera', { blockId: ids[10], offset: 0 })
+    applyAwarenessUpdate(authority, encodeAwarenessUpdate(peer, [peer.clientID]), 'move')
+    decide(doc, proposal(doc, (f) => setBlockText(f, ids[38], 'seed obs')), authority, guard, 0)
+
+    peer.setLocalStateField('camera', { blockId: ids[30], offset: 0 })
+    applyAwarenessUpdate(authority, encodeAwarenessUpdate(peer, [peer.clientID]), 'move')
     const update = proposal(doc, (f) => setBlockText(f, ids[30], 'edit at reader true position'))
     expect(decide(doc, update, emptyAwareness(doc), guard, 100).commit).toBe(false)
   })
 
-  // F-05 (carry-forward #63): a reloaded room presents a fresh EMPTY Awareness, today indistinguishable
-  // from "genuinely no readers", so a proposal in the reconnect gap commits. Needs empty-vs-unknown +
-  // grace keyed by room name. SKIP: un-skipped it FAILS today (commits). Contrast the :78 test, where an
-  // empty awareness legitimately commits — the fix is the signal that tells the two apart.
-  it.skip('P6.4 (#63): fails closed in a room-reload reconnect gap (empty non-null awareness ≠ no readers)', () => {
+  it('P6.4 (#63): fails closed in a room-reload reconnect gap (empty non-null awareness != no readers)', () => {
     const { doc, ids } = seed(40)
-    const update = proposal(doc, (f) => setBlockText(f, ids[20], 'edit in the reconnect gap'))
-    expect(decide(doc, update, emptyAwareness(doc), createSpatialProposalGuard(), 0).commit).toBe(false)
+    const reload = seed(40)
+    const guard = createSpatialProposalGuard({ graceMs: 5000 })
+    decide(doc, proposal(doc, (f) => setBlockText(f, ids[38], 'seed obs')), awarenessWithCamera(doc, ids[30]), guard, 0)
+    const update = proposal(reload.doc, (f) => setBlockText(f, reload.ids[20], 'edit in the reconnect gap'))
+    expect(decide(reload.doc, update, emptyAwareness(reload.doc), guard, 100).commit).toBe(false)
+    expect(decide(reload.doc, update, emptyAwareness(reload.doc), guard, 6001).commit).toBe(true)
   })
 
-  // F-06 (carry-forward #63): the guard folds EVERY published camera into the guarded set with no proposer
-  // self-exclusion. In the agent-as-user direction (the agent publishes its OWN camera), the authority would
-  // guard the agent's band against the agent itself — a peer frozen out of its own viewport. Excluding the
-  // proposer needs a signature change: ProposalGuardCtx.peer carries no clientId correlating to awareness
-  // keys, so liveCameras cannot today tell the proposer's camera from a reader's. SKIP: models the proposer's
-  // own camera as the sole published one and asserts the post-fix behaviour (a self-band edit commits);
-  // un-skipped it FAILS today (the guard refuses, guarding the proposer against itself).
-  it.skip("P6.3 (#63): excludes the proposer's own camera (an agent editing within its own viewport commits)", () => {
+  it("P6.3 (#63): excludes the proposer's own camera (an agent editing within its own viewport commits)", () => {
     const { doc, ids } = seed(40)
     const ownCamera = awarenessWithCamera(doc, ids[20]) // the proposer's OWN camera — post-fix: self-excluded
+    const ownId = cameraClientId(ownCamera)
     const update = proposal(doc, (f) => setBlockText(f, ids[22], 'agent edits within its own band'))
-    expect(decide(doc, update, ownCamera, createSpatialProposalGuard()).commit).toBe(true)
+    expect(decide(doc, update, ownCamera, createSpatialProposalGuard(), 0, ownId).commit).toBe(true)
   })
 })

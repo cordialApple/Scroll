@@ -17,6 +17,7 @@ export interface ProposalGuardCtx {
   document: Y.Doc
   awareness: Awareness | null
   now: number
+  sourceClientId?: number
 }
 export type ProposalGuard = (update: Uint8Array, ctx: ProposalGuardCtx) => GuardResult
 
@@ -35,6 +36,7 @@ export interface EvaluateProposalArgs {
   maxUpdateBytes: number
   awareness?: Awareness | null
   now?: number
+  sourceClientId?: number
 }
 
 // Pure authority decision for one proposal. Proposals arrive as stateless messages, so they bypass the
@@ -55,9 +57,28 @@ export function evaluateProposal(args: EvaluateProposalArgs): ProposalDecision {
   } catch {
     return { commit: false, reason: 'proposal rejected: undecodable update payload' }
   }
-  const verdict = guard(update, { peer, document, awareness: args.awareness ?? null, now: args.now ?? performance.now() })
-  if (!verdict.ok) return { commit: false, reason: verdict.reason }
-  return { commit: true }
+  const verdict = guard(update, {
+    peer,
+    document,
+    awareness: args.awareness ?? null,
+    now: args.now ?? performance.now(),
+    sourceClientId: args.sourceClientId,
+  })
+  return verdict.ok ? { commit: true } : { commit: false, reason: verdict.reason }
+}
+
+function extractSourceClientId(connection: unknown): number | undefined {
+  if (!connection || typeof connection !== 'object') return undefined
+  const keys: Array<keyof { clientId?: unknown; clientID?: unknown; id?: unknown }> = ['clientId', 'clientID', 'id']
+  for (const key of keys) {
+    const candidate = (connection as Record<(typeof keys)[number], unknown>)[key]
+    if (typeof candidate === 'number' && Number.isInteger(candidate)) return candidate
+    if (typeof candidate === 'string') {
+      const parsed = Number.parseInt(candidate, 10)
+      if (Number.isInteger(parsed)) return parsed
+    }
+  }
+  return undefined
 }
 
 const PROPOSE_MARKER = 'scroll/propose'
@@ -153,7 +174,16 @@ export function createProposeCommitExtension(commitProposal: CommitProposal, opt
         // Hocuspocus's Document owns the room-level awareness; hand it to the guard as room context. The
         // authority clock is monotonic (performance.now) so a wall-clock step can't corrupt grace math.
         const awareness = document.awareness ?? null
-        const decision = evaluateProposal({ peer, update, document, guard, maxUpdateBytes, awareness, now: performance.now() })
+        const decision = evaluateProposal({
+          peer,
+          update,
+          document,
+          guard,
+          maxUpdateBytes,
+          awareness,
+          now: performance.now(),
+          sourceClientId: extractSourceClientId(connection),
+        })
 
         if (decision.commit) await commitProposal(documentName, document, update)
         connection.sendStateless(result(proposal.id, decision))
